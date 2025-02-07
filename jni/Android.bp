@@ -61,7 +61,10 @@ cc_library_shared {
     cflags: [
         "-DFM_SOC_QCOM",
         "-Wno-unused-parameter",
-    ],
+    ] + select(soong_config_variable("libfmjni", "no_fm_firmware"), {
+        true: ["-DQCOM_NO_FM_FIRMWARE"],
+        default: [],
+    }),
 
     local_include_dirs: [
         "qcom",
