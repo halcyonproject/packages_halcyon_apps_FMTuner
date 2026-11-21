@@ -79,4 +79,56 @@
     <string name="stop_recording_dialog_message">更换电台将停止当前录音。是否继续？</string>
     <string name="stop_recording_confirm">停止并调频</string>
     <string name="recordings_count_format">%d 个录音</string>
+    <string name="recordings_empty">尚无录音</string>
+    <string name="recordings_empty_desc">当你从电台中录音后，录音将显示在此处</string>
+    <string name="saved_recordings">保存的录音</string>
+
+    <string name="settings_cat_general">通用</string>
+    <string name="pref_autoplay_title">启动时自动播放</string>
+    <string name="pref_autoplay_summary">在启动时自动调频至上一个电台</string>
+    <string name="settings_cat_appearance">外观与动效</string>
+    <string name="pref_reduce_motion_title">减弱动态效果</string>
+    <string name="pref_reduce_motion_summary">这将禁用按钮及字体的动态拉伸效果</string>
+    <string name="settings_cat_audio">音频与录制</string>
+    <string name="pref_format_title">录制格式</string>
+    <string name="pref_bitrate_title">音频比特率</string>
+    <string name="pref_location_title">存储位置</string>
+    <string name="settings_cat_about">关于本项目</string>
+    <string name="pref_version_title">版本</string>
+    <string name="pref_version_summary">v17.0 (2026) • 全新 Material 3 体验</string>
+    <string name="pref_license_title">许可证</string>
+    <string name="pref_license_summary">Apache 2.0 &amp; GNU 通用公共许可证</string>
+
+    <string name="dialog_select_format">选择音频格式</string>
+    <string name="dialog_select_bitrate">选择音频比特率</string>
+    <string name="dialog_about_title">关于 Halcyon FMTuner</string>
+    <string name="about_app_description">硬件级 FM 广播接收软件，由 iusmac 的 Revamped FM Radio 分支而来，并对 Material 3 Expressive 用户界面进行改良，带来更好的动效同时提供高品质的广播录制功能。</string>
+    <string name="about_crafted_by">专为 Halcyon Project 与 AOSP 制作。</string>
+
+    <string name="format_m4a_label">AAC / M4A（推荐）</string>
+    <string name="format_m4a_desc">高保真且现代的音频格式 (.m4a)</string>
+    <string name="format_mp3_label">MP3 (.mp3)</string>
+    <string name="format_mp3_desc">提供更好的播放兼容性 (.mp3)</string>
+
+    <string name="bitrate_128k_label">128 千比特</string>
+    <string name="bitrate_128k_desc">标准质量</string>
+    <string name="bitrate_192k_label">192 千比特（默认）</string>
+    <string name="bitrate_192k_desc">高品质的立体声音乐</string>
+    <string name="bitrate_256k_label">256 千比特</string>
+    <string name="bitrate_256k_desc">超清晰的广播质量</string>
+    <string name="bitrate_320k_label">320 千比特</string>
+    <string name="bitrate_320k_desc">最大程度保留细节</string>
+
+    <string name="delete_recording_title">删除录音</string>
+    <string name="delete_recording_desc">您确定要删除 \"%1$s\" 吗？此操作无法撤销。</string>
+    <string name="delete">Delete</string>
+
+    <string name="group_today">今天</string>
+    <string name="group_yesterday">昨天</string>
+    <string name="group_this_week">本周</string>
+    <string name="group_earlier">更早之前</string>
+
+    <string name="edit_station_title">编辑电台名</string>
+    <string name="delete_favorite_title">从收藏中移除</string>
+    <string name="delete_favorite_message">将 %1$s (%2$s) 从收藏中移除吗？</string>
 </resources>
