@@ -122,6 +122,10 @@ public interface FmListener {
 
     int MSGID_BLUETOOTH_ACTIVE_DEVICE_CHANGED = 105;
 
+    int MSGID_PAUSE_FINISHED = 106;
+
+    int MSGID_IDLE_POWERDOWN = 107;
+
     /**
      * Call back method to activity from service
      */

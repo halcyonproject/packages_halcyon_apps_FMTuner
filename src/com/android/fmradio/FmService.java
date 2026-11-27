@@ -86,6 +86,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Background service to control FM or do background tasks.
@@ -197,6 +199,10 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
     public static int POWER_UP = 0;
     public static int DURING_POWER_UP = 1;
     public static int POWER_DOWN = 2;
+    public static int POWER_PAUSED = 3;
+
+    private static final long IDLE_POWERDOWN_DELAY_MS = 45_000L;
+    private final ExecutorService mNotificationExecutor = Executors.newSingleThreadExecutor();
     // Record whether service is init
     private boolean mIsServiceInited = false;
     // Fm power down by loss audio focus,should make power down menu item can
@@ -619,6 +625,18 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
 
     private synchronized void startRender() {
         Log.d(TAG, "startRender " + AudioSystem.getForceUse(FOR_PROPRIETARY));
+        int routeKey = (mIsSpeakerUsed ? 1 : 0) | (mForceUseAudioSession ? 2 : 0);
+
+        if (mRenderThread != null && mRenderThread.isAlive()
+                && mAudioRecord != null && mAudioTrack != null
+                && mLastAudioRouteKey == routeKey) {
+            mAudioTrack.setVolume(1.0f);
+            mIsRender = true;
+            synchronized (mRenderLock) {
+                mRenderLock.notify();
+            }
+            return;
+        }
 
         exitRenderThread();
 
@@ -635,6 +653,7 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
            mAudioTrack = null;
        }
        initAudioRecordSink();
+       mLastAudioRouteKey = routeKey;
 
         mIsRender = true;
         createRenderThread();
@@ -648,7 +667,9 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
         mIsRender = false;
         // HACK: Set volume to 0 to squelch any output between the call to
         // stopRender and the render thread calling AudioTrack.stop
-        mAudioTrack.setVolume(0.0f);
+        if (mAudioTrack != null) {
+            mAudioTrack.setVolume(0.0f);
+        }
     }
 
     private synchronized void createRenderThread() {
@@ -674,6 +695,7 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
     private Thread mRenderThread = null;
     private AudioRecord mAudioRecord = null;
     private AudioTrack mAudioTrack = null;
+    private int mLastAudioRouteKey = -1;
     private boolean mUseAudioSession;
     private boolean mForceUseAudioSession;
     private static final int SAMPLE_RATE = 44100;
@@ -820,6 +842,8 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
      */
     public void powerUpAsync(float frequency) {
         final int bundleSize = 1;
+        mFmServiceHandler.removeMessages(FmListener.MSGID_IDLE_POWERDOWN);
+        mFmServiceHandler.removeMessages(FmListener.MSGID_PAUSE_FINISHED);
         mFmServiceHandler.removeMessages(FmListener.MSGID_POWERUP_FINISHED);
         mFmServiceHandler.removeMessages(FmListener.MSGID_POWERDOWN_FINISHED);
         Bundle bundle = new Bundle(bundleSize);
@@ -837,10 +861,24 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
             mWakeLock.acquire();
         }
         if (!requestAudioFocus()) {
-            // activity used for update powerdown menu
-            mPowerStatus = POWER_DOWN;
+            if (mPowerStatus != POWER_PAUSED) {
+                mPowerStatus = POWER_DOWN;
+            }
             mWakeLock.release();
             return false;
+        }
+
+        if (mPowerStatus == POWER_PAUSED) {
+            FmNative.trySetNormalPowerMode();
+            int targetStation = FmUtils.computeStation(frequency);
+            if (targetStation != mCurrentStation && !FmNative.tune(frequency)) {
+                mPowerStatus = POWER_DOWN;
+                mWakeLock.release();
+                return false;
+            }
+            mPowerStatus = POWER_UP;
+            setMute(true);
+            return true;
         }
 
         mPowerStatus = DURING_POWER_UP;
@@ -891,6 +929,51 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
     }
 
     /**
+     * Pause FM audio immediately while keeping the RF chip in warm low-power standby
+     * until the idle timeout expires.
+     */
+    public void pausePlaybackAsync() {
+        mFmServiceHandler.removeMessages(FmListener.MSGID_SCAN_FINISHED);
+        mFmServiceHandler.removeMessages(FmListener.MSGID_SEEK_FINISHED);
+        mFmServiceHandler.removeMessages(FmListener.MSGID_TUNE_FINISHED);
+        mFmServiceHandler.removeMessages(FmListener.MSGID_POWERDOWN_FINISHED);
+        mFmServiceHandler.removeMessages(FmListener.MSGID_POWERUP_FINISHED);
+        mFmServiceHandler.removeMessages(FmListener.MSGID_PAUSE_FINISHED);
+        mFmServiceHandler.removeMessages(FmListener.MSGID_IDLE_POWERDOWN);
+        mFmServiceHandler.sendEmptyMessage(FmListener.MSGID_PAUSE_FINISHED);
+    }
+
+    private void pausePlayback() {
+        if (mPowerStatus != POWER_UP) {
+            return;
+        }
+
+        if (mFmRecorder != null) {
+            stopRecording();
+        }
+
+        setMute(true);
+        setRds(false);
+        enableFmAudio(false);
+        mPowerStatus = POWER_PAUSED;
+
+        if (isRdsSupported()) {
+            stopRdsThread();
+        }
+
+        FmNative.trySetLowPowerMode();
+
+        if (mWakeLock.isHeld()) {
+            mWakeLock.release();
+        }
+
+        abandonAudioFocus();
+        showPlayingNotification();
+        mFmServiceHandler.sendEmptyMessageDelayed(
+                FmListener.MSGID_IDLE_POWERDOWN, IDLE_POWERDOWN_DELAY_MS);
+    }
+
+    /**
      * power down FM
      */
     public void powerDownAsync() {
@@ -902,6 +985,8 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
         mFmServiceHandler.removeMessages(FmListener.MSGID_TUNE_FINISHED);
         mFmServiceHandler.removeMessages(FmListener.MSGID_POWERDOWN_FINISHED);
         mFmServiceHandler.removeMessages(FmListener.MSGID_POWERUP_FINISHED);
+        mFmServiceHandler.removeMessages(FmListener.MSGID_PAUSE_FINISHED);
+        mFmServiceHandler.removeMessages(FmListener.MSGID_IDLE_POWERDOWN);
         mFmServiceHandler.sendEmptyMessage(FmListener.MSGID_POWERDOWN_FINISHED);
     }
 
@@ -922,6 +1007,7 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
         setMute(true);
         setRds(false);
         enableFmAudio(false);
+        abandonAudioFocus();
 
         if (!FmNative.powerDown(0)) {
 
@@ -1706,6 +1792,7 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
             stopRender();
             exitRenderThread();
         }
+        mNotificationExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -1878,6 +1965,7 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
         if (null != mRdsThread) {
             // Must call closedev after stopRDSThread.
             mIsRdsThreadExit = true;
+            mRdsThread.interrupt();
             mRdsThread = null;
         }
     }
@@ -2007,145 +2095,153 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
         if (mIsScanning) {
             return;
         }
-        synchronized (mNotificationLock) {
-            String stationName = "";
-            String radioText = "";
-            ContentResolver resolver = mContext.getContentResolver();
-            Cursor cursor = null;
-            try {
-                cursor = resolver.query(
-                        Station.CONTENT_URI,
-                        FmStation.COLUMNS,
-                        Station.FREQUENCY + "=?",
-                        new String[] { String.valueOf(mCurrentStation) },
-                        null);
-                if (cursor != null && cursor.moveToFirst()) {
-                    // If the station name is not exist, show program service(PS) instead
-                    stationName = cursor.getString(cursor.getColumnIndex(Station.STATION_NAME));
-                    if (TextUtils.isEmpty(stationName)) {
-                        stationName = cursor.getString(cursor.getColumnIndex(Station.PROGRAM_SERVICE));
+        final boolean playingNow = isPlaying();
+        final int stationNow = mCurrentStation;
+        final boolean foregroundNow = isActivityForeground();
+        final int recorderStateNow = getRecorderState();
+        final String targetClsNow = mTargetClassName;
+
+        long playBackStateActions = PlaybackState.ACTION_PLAY |
+                PlaybackState.ACTION_PLAY_PAUSE |
+                PlaybackState.ACTION_PAUSE |
+                PlaybackState.ACTION_SKIP_TO_NEXT |
+                PlaybackState.ACTION_SKIP_TO_PREVIOUS |
+                PlaybackState.ACTION_STOP;
+
+        mSession.setPlaybackState(new PlaybackState.Builder()
+                .setActions(playBackStateActions)
+                .setState((playingNow ?
+                        PlaybackState.STATE_PLAYING :
+                        PlaybackState.STATE_PAUSED), 0, 1.0f).build());
+
+        mNotificationExecutor.execute(() -> {
+            synchronized (mNotificationLock) {
+                String stationName = "";
+                String radioText = "";
+                ContentResolver resolver = mContext.getContentResolver();
+                Cursor cursor = null;
+                try {
+                    cursor = resolver.query(
+                            Station.CONTENT_URI,
+                            FmStation.COLUMNS,
+                            Station.FREQUENCY + "=?",
+                            new String[] { String.valueOf(stationNow) },
+                            null);
+                    if (cursor != null && cursor.moveToFirst()) {
+                        stationName = cursor.getString(cursor.getColumnIndex(Station.STATION_NAME));
+                        if (TextUtils.isEmpty(stationName)) {
+                            stationName = cursor.getString(cursor.getColumnIndex(Station.PROGRAM_SERVICE));
+                        }
+                        radioText = cursor.getString(cursor.getColumnIndex(Station.RADIO_TEXT));
+                    } else {
+                        Log.d(TAG, "showPlayingNotification, cursor is null");
                     }
-                    radioText = cursor.getString(cursor.getColumnIndex(Station.RADIO_TEXT));
-
-                } else {
-                    Log.d(TAG, "showPlayingNotification, cursor is null");
+                } catch (Exception e) {
+                    Log.w(TAG, "showPlayingNotification query failed", e);
+                } finally {
+                    if (cursor != null) {
+                        cursor.close();
+                    }
                 }
-            } finally {
-                if (cursor != null) {
-                    cursor.close();
+
+                String formattedFreq = FmUtils.formatStation(stationNow) + " MHz";
+                String title = stationName;
+                String artist = radioText;
+
+                if (TextUtils.isEmpty(title)) {
+                    title = formattedFreq;
                 }
+
+                if (TextUtils.isEmpty(artist)) {
+                    artist = title.equals(formattedFreq) ? getString(R.string.app_name) : formattedFreq;
+                }
+
+                Bitmap artwork = StationArtworkGenerator.getStationArtwork(mContext, stationNow, title);
+
+                try {
+                    mSession.setMetadata(new MediaMetadata.Builder()
+                            .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+                            .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                            .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, artwork)
+                            .putBitmap(MediaMetadata.METADATA_KEY_ART, artwork)
+                            .build());
+                } catch (Exception e) {
+                    return;
+                }
+
+                if (foregroundNow || (recorderStateNow == FmRecorder.STATE_RECORDING)) {
+                    return;
+                }
+
+                Intent aIntent = new Intent(Intent.ACTION_MAIN);
+                aIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+                aIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                aIntent.setClassName(getPackageName(), targetClsNow);
+                PendingIntent pAIntent = PendingIntent.getActivity(
+                        mContext, 0, aIntent, PendingIntent.FLAG_IMMUTABLE);
+
+                if (mNotificationManager == null) {
+                    mNotificationManager = (NotificationManager)
+                        mContext.getSystemService(Context.NOTIFICATION_SERVICE);
+                }
+
+                if (mNotificationChannel == null) {
+                    mNotificationChannel =
+                        new NotificationChannel(NOTIFICATION_CHANNEL,
+                                mContext.getString(R.string.app_name),
+                                NotificationManager.IMPORTANCE_LOW);
+
+                    mNotificationManager.createNotificationChannel(mNotificationChannel);
+                }
+
+                int playButtonResId = playingNow
+                        ? R.drawable.btn_fm_rec_stop_enabled :
+                        R.drawable.btn_fm_rec_playback_enabled;
+                int playButtonTitleResId = playingNow
+                        ? R.string.accessibility_pause :
+                        R.string.accessibility_play;
+
+                Notification.Builder notificationBuilder;
+                notificationBuilder = new Notification.Builder(mContext, NOTIFICATION_CHANNEL);
+                notificationBuilder.setSmallIcon(R.drawable.ic_notification);
+                notificationBuilder.setShowWhen(false);
+                notificationBuilder.setAutoCancel(true);
+
+                Intent intent = new Intent(FM_SEEK_PREVIOUS);
+                intent.setClass(mContext, FmService.class);
+                PendingIntent pIntent = PendingIntent.getService(
+                        mContext, 0, intent, PendingIntent.FLAG_IMMUTABLE);
+                notificationBuilder.addAction(R.drawable.btn_fm_prevstation,
+                        getString(R.string.accessibility_prev), pIntent);
+                intent = new Intent(playingNow ? FM_TURN_OFF : FM_TURN_ON);
+                intent.setClass(mContext, FmService.class);
+                pIntent = PendingIntent.getService(mContext, 0, intent, PendingIntent.FLAG_IMMUTABLE);
+                notificationBuilder.addAction(playButtonResId,
+                        getString(playButtonTitleResId), pIntent);
+                intent = new Intent(FM_SEEK_NEXT);
+                intent.setClass(mContext, FmService.class);
+                pIntent = PendingIntent.getService(mContext, 0, intent, PendingIntent.FLAG_IMMUTABLE);
+                notificationBuilder.addAction(R.drawable.btn_fm_nextstation,
+                        getString(R.string.accessibility_next) , pIntent);
+                notificationBuilder.setContentIntent(pAIntent);
+
+                notificationBuilder.setColor(mContext.getResources()
+                        .getColor(R.color.notification_icon_bg_color));
+                notificationBuilder.setLargeIcon(artwork);
+
+                notificationBuilder.setStyle(
+                        new Notification.MediaStyle()
+                        .setShowActionsInCompactView(0, 1, 2)
+                        .setMediaSession(mSession.getSessionToken()));
+                notificationBuilder.setContentTitle(title);
+                notificationBuilder.setContentText(artist);
+                Log.d(TAG, "showPlayingNotification Title:" + title + ", Subtitle:" + artist);
+
+                Notification n = notificationBuilder.build();
+                n.flags &= ~Notification.FLAG_NO_CLEAR;
+                startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
             }
-
-            long playBackStateActions = PlaybackState.ACTION_PLAY |
-                    PlaybackState.ACTION_PLAY_PAUSE |
-                    PlaybackState.ACTION_PAUSE |
-                    PlaybackState.ACTION_SKIP_TO_NEXT |
-                    PlaybackState.ACTION_SKIP_TO_PREVIOUS |
-                    PlaybackState.ACTION_STOP;
-
-            mSession.setPlaybackState(new PlaybackState.Builder()
-                    .setActions(playBackStateActions)
-                    .setState((isPlaying() ?
-                            PlaybackState.STATE_PLAYING :
-                            PlaybackState.STATE_PAUSED), 0, 1.0f).build());
-
-            String formattedFreq = FmUtils.formatStation(mCurrentStation) + " MHz";
-            String title = stationName;
-            String artist = radioText;
-
-            // If station name / RDS program service is omitted, use frequency as main title
-            if (TextUtils.isEmpty(title)) {
-                title = formattedFreq;
-            }
-
-            // If RDS radio text is omitted, use app name or frequency as artist
-            if (TextUtils.isEmpty(artist)) {
-                artist = title.equals(formattedFreq) ? getString(R.string.app_name) : formattedFreq;
-            }
-
-            Bitmap artwork = StationArtworkGenerator.getStationArtwork(mContext, mCurrentStation, title);
-
-            mSession.setMetadata(new MediaMetadata.Builder()
-                    .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
-                    .putString(MediaMetadata.METADATA_KEY_TITLE, title)
-                    .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, artwork)
-                    .putBitmap(MediaMetadata.METADATA_KEY_ART, artwork)
-                    .build());
-
-            if (isActivityForeground() || (getRecorderState() == FmRecorder.STATE_RECORDING)) {
-                return;
-            }
-
-            Intent aIntent = new Intent(Intent.ACTION_MAIN);
-            aIntent.addCategory(Intent.CATEGORY_LAUNCHER);
-            aIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            aIntent.setClassName(getPackageName(), mTargetClassName);
-            PendingIntent pAIntent = PendingIntent.getActivity(
-                    mContext, 0, aIntent, PendingIntent.FLAG_IMMUTABLE);
-
-            if (mNotificationManager == null) {
-                mNotificationManager = (NotificationManager)
-                    mContext.getSystemService(Context.NOTIFICATION_SERVICE);
-            }
-
-            if (mNotificationChannel == null) {
-                mNotificationChannel =
-                    new NotificationChannel(NOTIFICATION_CHANNEL,
-                            mContext.getString(R.string.app_name),
-                            NotificationManager.IMPORTANCE_LOW);
-
-                mNotificationManager.createNotificationChannel(mNotificationChannel);
-            }
-
-            boolean isPlaying = isPlaying();
-            int playButtonResId = isPlaying
-                    ? R.drawable.btn_fm_rec_stop_enabled :
-                    R.drawable.btn_fm_rec_playback_enabled;
-            int playButtonTitleResId = isPlaying
-                    ? R.string.accessibility_pause :
-                    R.string.accessibility_play;
-
-            Notification.Builder notificationBuilder;
-            notificationBuilder = new Notification.Builder(mContext, NOTIFICATION_CHANNEL);
-            notificationBuilder.setSmallIcon(R.drawable.ic_notification);
-            notificationBuilder.setShowWhen(false);
-            notificationBuilder.setAutoCancel(true);
-
-            Intent intent = new Intent(FM_SEEK_PREVIOUS);
-            intent.setClass(mContext, FmService.class);
-            PendingIntent pIntent = PendingIntent.getService(
-                    mContext, 0, intent, PendingIntent.FLAG_IMMUTABLE);
-            notificationBuilder.addAction(R.drawable.btn_fm_prevstation,
-                    getString(R.string.accessibility_prev), pIntent);
-            intent = new Intent(isPlaying ? FM_TURN_OFF : FM_TURN_ON);
-            intent.setClass(mContext, FmService.class);
-            pIntent = PendingIntent.getService(mContext, 0, intent, PendingIntent.FLAG_IMMUTABLE);
-            notificationBuilder.addAction(playButtonResId,
-                    getString(playButtonTitleResId), pIntent);
-            intent = new Intent(FM_SEEK_NEXT);
-            intent.setClass(mContext, FmService.class);
-            pIntent = PendingIntent.getService(mContext, 0, intent, PendingIntent.FLAG_IMMUTABLE);
-            notificationBuilder.addAction(R.drawable.btn_fm_nextstation,
-                    getString(R.string.accessibility_next) , pIntent);
-            notificationBuilder.setContentIntent(pAIntent);
-
-            notificationBuilder.setColor(mContext.getResources()
-                    .getColor(R.color.notification_icon_bg_color));
-            notificationBuilder.setLargeIcon(artwork);
-
-            // Apply the media style template
-            notificationBuilder.setStyle(
-                    new Notification.MediaStyle()
-                    .setShowActionsInCompactView(0, 1, 2)
-                    .setMediaSession(mSession.getSessionToken()));
-            notificationBuilder.setContentTitle(title);
-            notificationBuilder.setContentText(artist);
-            Log.d(TAG, "showPlayingNotification Title:" + title + ", Subtitle:" + artist);
-
-            Notification n = notificationBuilder.build();
-            n.flags &= ~Notification.FLAG_NO_CLEAR;
-            startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
-        }
+        });
     }
 
     private void setUpMediaSession() {
@@ -2158,7 +2254,7 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
         mSession.setCallback(new MediaSession.Callback() {
             @Override
             public void onPause() {
-                powerDownAsync();
+                pausePlaybackAsync();
             }
 
             @Override
@@ -2402,8 +2498,10 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
      * Abandon audio focus
      */
     public void abandonAudioFocus() {
-        mAudioManager.abandonAudioFocusRequest(mGainFocusRequest);
-        mGainFocusRequest = null;
+        if (mGainFocusRequest != null) {
+            mAudioManager.abandonAudioFocusRequest(mGainFocusRequest);
+            mGainFocusRequest = null;
+        }
         mIsAudioFocusHeld = false;
     }
 
@@ -2793,6 +2891,18 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
                     handlePowerDown();
                     break;
 
+                // warm standby pause
+                case FmListener.MSGID_PAUSE_FINISHED:
+                    handlePause();
+                    break;
+
+                // idle timeout after warm pause -> hard chip shutdown
+                case FmListener.MSGID_IDLE_POWERDOWN:
+                    if (mPowerStatus == POWER_PAUSED) {
+                        powerDown();
+                    }
+                    break;
+
                 // fm exit
                 case FmListener.MSGID_FM_EXIT:
                     if (mIsSpeakerUsed) {
@@ -2950,9 +3060,9 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
                 case FmListener.MSGID_SWITCH_LOW_POWER_MODE:
                     bundle = msg.getData();
                     if (bundle.getBoolean(OPTION)) {
-                        FmNative.setLowPowerMode();
+                        FmNative.trySetLowPowerMode();
                     } else {
-                        FmNative.setNormalPowerMode();
+                        FmNative.trySetNormalPowerMode();
                     }
                     break;
 
@@ -2987,7 +3097,7 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
                     switch (mHeadsetHookClickCounter) {
                         case 1:
                             if (isPlaying()) {
-                                powerDownAsync();
+                                pausePlaybackAsync();
                             } else {
                                 powerUpAsync(FmUtils.computeFrequency(mCurrentStation));
                             }
@@ -3077,6 +3187,13 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
 
     }
 
+    private void handlePause() {
+        pausePlayback();
+        Bundle bundle = new Bundle(1);
+        bundle.putInt(FmListener.CALLBACK_FLAG, FmListener.MSGID_POWERDOWN_FINISHED);
+        notifyActivityStateChanged(bundle);
+    }
+
     /**
      * handle power down, execute power down and call back to activity.
      */
@@ -3094,6 +3211,7 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
      * @param bundle power up frequency
      */
     private void handlePowerUp(Bundle bundle) {
+        mFmServiceHandler.removeMessages(FmListener.MSGID_IDLE_POWERDOWN);
         boolean isPowerUp = false;
         boolean isSwitch = true;
         float curFrequency = bundle.getFloat(FM_FREQUENCY);

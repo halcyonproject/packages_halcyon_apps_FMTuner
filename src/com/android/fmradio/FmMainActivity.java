@@ -202,7 +202,7 @@ public class FmMainActivity extends ComponentActivity implements FmFavoriteEditD
                 seekStation(mCurrentStation, true); // true: previous station
             } else if (viewId == R.id.play_button) {
                 if (mService.getPowerStatus() == FmService.POWER_UP) {
-                    powerDownFm();
+                    pauseFm();
                 } else {
                     powerUpFm();
                 }
@@ -573,7 +573,7 @@ public class FmMainActivity extends ComponentActivity implements FmFavoriteEditD
     private void setupUiCallbacks() {
         mUiState.setOnPlayPauseListener(() -> {
             if (mService != null && mService.getPowerStatus() == FmService.POWER_UP) {
-                powerDownFm();
+                pauseFm();
             } else {
                 powerUpFm();
             }
@@ -904,7 +904,7 @@ public class FmMainActivity extends ComponentActivity implements FmFavoriteEditD
         }
         int powerStatus = mService.getPowerStatus();
         boolean isPowerUp = (powerStatus == FmService.POWER_UP);
-        boolean isPowerdown = (powerStatus == FmService.POWER_DOWN);
+        boolean isPowerdown = (powerStatus == FmService.POWER_DOWN || powerStatus == FmService.POWER_PAUSED);
         boolean isSeeking = mService.isSeeking();
         boolean isSpeakerUsed = mService.isSpeakerUsed();
         // if fm power down by other app, should enable power menu, make it to
@@ -1070,6 +1070,20 @@ public class FmMainActivity extends ComponentActivity implements FmFavoriteEditD
     }
 
     /**
+     * Pause FM playback in warm standby
+     */
+    private void pauseFm() {
+        if (mUiState != null) {
+            mUiState.setSeeking(false);
+        }
+        refreshImageButton(false);
+        refreshActionMenuItem(false);
+        refreshPopupMenuItem(false);
+        refreshPlayButton(false);
+        mService.pausePlaybackAsync();
+    }
+
+    /**
      * Power down FM
      */
     private void powerDownFm() {
@@ -1170,7 +1184,8 @@ public class FmMainActivity extends ComponentActivity implements FmFavoriteEditD
     @Override
     public void onBackPressed() {
         // exit fm, disable all button
-        if ((null != mService) && (mService.getPowerStatus() == FmService.POWER_DOWN)) {
+        if ((null != mService) && (mService.getPowerStatus() == FmService.POWER_DOWN
+                || mService.getPowerStatus() == FmService.POWER_PAUSED)) {
             refreshImageButton(false);
             refreshActionMenuItem(false);
             refreshPopupMenuItem(false);
@@ -1234,7 +1249,7 @@ public class FmMainActivity extends ComponentActivity implements FmFavoriteEditD
         boolean isPowerUp = (powerStatus == FmService.POWER_UP);
         boolean isDuringPowerup = (powerStatus == FmService.DURING_POWER_UP);
         boolean isSeeking = mService.isSeeking();
-        boolean isPowerdown = (powerStatus == FmService.POWER_DOWN);
+        boolean isPowerdown = (powerStatus == FmService.POWER_DOWN || powerStatus == FmService.POWER_PAUSED);
         boolean isSpeakerUsed = mService.isSpeakerUsed();
         boolean fmStatus = (isSeeking || isDuringPowerup);
         // when seeking, all button should disabled,
