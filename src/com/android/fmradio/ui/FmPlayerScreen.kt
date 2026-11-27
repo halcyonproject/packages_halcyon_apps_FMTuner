@@ -145,11 +145,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.ExperimentalTextApi
-import androidx.compose.ui.text.font.DeviceFontFamilyName
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -307,36 +303,28 @@ fun FmPlayerScreen(
     val qWdth = (animWdth / 2.5f).roundToInt() * 2.5f
     val qSlnt = (animSlnt / 2.5f).roundToInt() * 2.5f
 
-    @OptIn(ExperimentalTextApi::class)
     val fontCache = remember { mutableMapOf<Triple<Float, Float, Float>, FontFamily>() }
-    @OptIn(ExperimentalTextApi::class)
     val currentTitleFont = if (reduceMotion) {
         remember {
-            FontFamily(
-                Font(
-                    familyName = DeviceFontFamilyName("google-sans-flex"),
-                    variationSettings = FontVariation.Settings(
-                        FontVariation.Setting("wght", 700f),
-                        FontVariation.Setting("wdth", 117.5f),
-                        FontVariation.Setting("slnt", 0f),
-                        FontVariation.Setting("ROND", 100f)
-                    )
-                )
+            createGoogleSansFlexFamily(
+                wght = 700f,
+                wdth = 117.5f,
+                slnt = 0f,
+                rond = 100f,
+                opsz = 40f,
+                weight = FontWeight.Bold
             )
         }
     } else {
         remember(qWght, qWdth, qSlnt) {
             fontCache.getOrPut(Triple(qWght, qWdth, qSlnt)) {
-                FontFamily(
-                    Font(
-                        familyName = DeviceFontFamilyName("google-sans-flex"),
-                        variationSettings = FontVariation.Settings(
-                            FontVariation.Setting("wght", qWght),
-                            FontVariation.Setting("wdth", qWdth),
-                            FontVariation.Setting("slnt", qSlnt),
-                            FontVariation.Setting("ROND", 100f)
-                        )
-                    )
+                createGoogleSansFlexFamily(
+                    wght = qWght,
+                    wdth = qWdth,
+                    slnt = qSlnt,
+                    rond = 100f,
+                    opsz = 40f,
+                    weight = FontWeight.Bold
                 )
             }
         }

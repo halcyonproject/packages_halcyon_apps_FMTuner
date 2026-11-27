@@ -28,61 +28,82 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.DeviceFontFamilyName
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import java.io.File
+
+private val googleSansFlexFile: File? by lazy {
+    listOf(
+        "/product/fonts/GoogleSansFlex-Regular.ttf",
+        "/system/fonts/GoogleSansFlex-Regular.ttf"
+    ).map(::File).firstOrNull { it.isFile && it.canRead() }
+}
 
 @OptIn(ExperimentalTextApi::class)
-val GoogleSansFlexTitle = FontFamily(
-    Font(
-        familyName = DeviceFontFamilyName("google-sans-flex"),
-        weight = FontWeight.Bold,
-        variationSettings = FontVariation.Settings(
-            FontVariation.Setting("wght", 700f),
-            FontVariation.Setting("wdth", 100f),
-            FontVariation.Setting("ROND", 0f)
+fun createGoogleSansFlexFont(
+    wght: Float,
+    wdth: Float = 100f,
+    slnt: Float = 0f,
+    rond: Float = 0f,
+    opsz: Float = 18f,
+    weight: FontWeight = FontWeight.Normal,
+    style: FontStyle = FontStyle.Normal
+): Font {
+    val variations = FontVariation.Settings(
+        FontVariation.Setting("wght", wght.coerceIn(1f, 1000f)),
+        FontVariation.Setting("wdth", wdth.coerceIn(25f, 151f)),
+        FontVariation.Setting("slnt", slnt.coerceIn(-10f, 0f)),
+        FontVariation.Setting("ROND", rond.coerceIn(0f, 100f)),
+        FontVariation.Setting("opsz", opsz.coerceIn(6f, 144f))
+    )
+    val file = googleSansFlexFile
+    return if (file != null) {
+        Font(
+            file = file,
+            weight = weight,
+            style = style,
+            variationSettings = variations
         )
-    ),
-    Font(
-        familyName = DeviceFontFamilyName("google-sans-flex"),
-        weight = FontWeight.SemiBold,
-        variationSettings = FontVariation.Settings(
-            FontVariation.Setting("wght", 600f),
-            FontVariation.Setting("wdth", 100f),
-            FontVariation.Setting("ROND", 0f)
+    } else {
+        Font(
+            familyName = DeviceFontFamilyName("google-sans-flex"),
+            weight = weight,
+            style = style,
+            variationSettings = variations
         )
-    ),
-    Font(
-        familyName = DeviceFontFamilyName("google-sans-flex"),
-        weight = FontWeight.Medium,
-        variationSettings = FontVariation.Settings(
-            FontVariation.Setting("wght", 500f),
-            FontVariation.Setting("wdth", 100f),
-            FontVariation.Setting("ROND", 0f)
-        )
+    }
+}
+
+fun createGoogleSansFlexFamily(
+    wght: Float,
+    wdth: Float = 100f,
+    slnt: Float = 0f,
+    rond: Float = 0f,
+    opsz: Float = 18f,
+    weight: FontWeight = FontWeight.Normal
+): FontFamily = FontFamily(
+    createGoogleSansFlexFont(
+        wght = wght,
+        wdth = wdth,
+        slnt = slnt,
+        rond = rond,
+        opsz = opsz,
+        weight = weight
     )
 )
 
-@OptIn(ExperimentalTextApi::class)
+val GoogleSansFlexTitle = FontFamily(
+    createGoogleSansFlexFont(wght = 700f, rond = 100f, opsz = 32f, weight = FontWeight.Bold),
+    createGoogleSansFlexFont(wght = 600f, rond = 100f, opsz = 24f, weight = FontWeight.SemiBold),
+    createGoogleSansFlexFont(wght = 500f, rond = 50f, opsz = 18f, weight = FontWeight.Medium)
+)
+
 val GoogleSansFlexBody = FontFamily(
-    Font(
-        familyName = DeviceFontFamilyName("google-sans-flex"),
-        weight = FontWeight.Normal,
-        variationSettings = FontVariation.Settings(
-            FontVariation.Setting("wght", 400f),
-            FontVariation.Setting("wdth", 100f),
-            FontVariation.Setting("ROND", 0f)
-        )
-    ),
-    Font(
-        familyName = DeviceFontFamilyName("google-sans-flex"),
-        weight = FontWeight.Medium,
-        variationSettings = FontVariation.Settings(
-            FontVariation.Setting("wght", 500f),
-            FontVariation.Setting("wdth", 100f),
-            FontVariation.Setting("ROND", 0f)
-        )
-    )
+    createGoogleSansFlexFont(wght = 400f, rond = 0f, opsz = 16f, weight = FontWeight.Normal),
+    createGoogleSansFlexFont(wght = 500f, rond = 0f, opsz = 14f, weight = FontWeight.Medium),
+    createGoogleSansFlexFont(wght = 600f, rond = 0f, opsz = 14f, weight = FontWeight.SemiBold)
 )
 
 val RevampedTypography = Typography(
@@ -98,6 +119,12 @@ val RevampedTypography = Typography(
         fontSize = 45.sp,
         lineHeight = 52.sp
     ),
+    displaySmall = TextStyle(
+        fontFamily = GoogleSansFlexTitle,
+        fontWeight = FontWeight.Bold,
+        fontSize = 36.sp,
+        lineHeight = 44.sp
+    ),
     headlineLarge = TextStyle(
         fontFamily = GoogleSansFlexTitle,
         fontWeight = FontWeight.Bold,
@@ -109,6 +136,12 @@ val RevampedTypography = Typography(
         fontWeight = FontWeight.SemiBold,
         fontSize = 28.sp,
         lineHeight = 36.sp
+    ),
+    headlineSmall = TextStyle(
+        fontFamily = GoogleSansFlexTitle,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 24.sp,
+        lineHeight = 32.sp
     ),
     titleLarge = TextStyle(
         fontFamily = GoogleSansFlexTitle,
@@ -122,6 +155,12 @@ val RevampedTypography = Typography(
         fontSize = 16.sp,
         lineHeight = 24.sp
     ),
+    titleSmall = TextStyle(
+        fontFamily = GoogleSansFlexTitle,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 20.sp
+    ),
     bodyLarge = TextStyle(
         fontFamily = GoogleSansFlexBody,
         fontWeight = FontWeight.Normal,
@@ -134,6 +173,12 @@ val RevampedTypography = Typography(
         fontSize = 14.sp,
         lineHeight = 20.sp
     ),
+    bodySmall = TextStyle(
+        fontFamily = GoogleSansFlexBody,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp
+    ),
     labelLarge = TextStyle(
         fontFamily = GoogleSansFlexBody,
         fontWeight = FontWeight.Medium,
@@ -145,8 +190,26 @@ val RevampedTypography = Typography(
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp
+    ),
+    labelSmall = TextStyle(
+        fontFamily = GoogleSansFlexBody,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.sp,
+        lineHeight = 16.sp
     )
 )
+
+@Composable
+fun ForceGoogleSansFlexTheme(
+    content: @Composable () -> Unit
+) {
+    MaterialTheme(
+        colorScheme = MaterialTheme.colorScheme,
+        typography = RevampedTypography,
+        shapes = MaterialTheme.shapes,
+        content = content
+    )
+}
 
 @Composable
 fun RevampedFmTheme(

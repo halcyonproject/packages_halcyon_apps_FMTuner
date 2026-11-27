@@ -72,6 +72,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.android.fmradio.FmPreferences
+import com.android.fmradio.ui.ForceGoogleSansFlexTheme
 import com.android.settingslib.spa.framework.compose.LocalNavController
 import com.android.settingslib.spa.framework.compose.NavControllerWrapper
 import com.android.settingslib.spa.framework.theme.SettingsDimension
@@ -162,7 +163,8 @@ fun FmSettingsScreen(
             }
     ) {
         SettingsTheme {
-            CompositionLocalProvider(LocalNavController provides navControllerWrapper) {
+            ForceGoogleSansFlexTheme {
+                CompositionLocalProvider(LocalNavController provides navControllerWrapper) {
                 SettingsScaffold(
                     title = stringResource(R.string.settings)
                 ) { paddingValues ->
@@ -291,7 +293,8 @@ fun FmSettingsScreen(
                 }
             }
         }
-    }
+            }
+        }
     }
 
     if (showFormatDialog) {

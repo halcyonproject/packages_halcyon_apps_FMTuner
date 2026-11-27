@@ -111,11 +111,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.ExperimentalTextApi
-import androidx.compose.ui.text.font.DeviceFontFamilyName
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -124,6 +119,9 @@ import androidx.compose.foundation.background
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import com.android.fmradio.ui.ForceGoogleSansFlexTheme
+import com.android.fmradio.ui.GoogleSansFlexBody
+import com.android.fmradio.ui.GoogleSansFlexTitle
 import com.hlcyn.tuner.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -144,8 +142,7 @@ data class RecordingItem(
 
 @OptIn(
     ExperimentalMaterial3Api::class,
-    ExperimentalMaterial3ExpressiveApi::class,
-    ExperimentalTextApi::class
+    ExperimentalMaterial3ExpressiveApi::class
 )
 @Composable
 fun FmRecordingsScreen(
@@ -173,32 +170,8 @@ fun FmRecordingsScreen(
         }
     }
 
-    // Clean Google Sans Typography (matching Settings sample)
-    val titleFont = remember {
-        FontFamily(
-            Font(
-                familyName = DeviceFontFamilyName("google-sans-flex"),
-                variationSettings = FontVariation.Settings(
-                    FontVariation.Setting("wght", 700f),
-                    FontVariation.Setting("wdth", 100f),
-                    FontVariation.Setting("ROND", 0f)
-                )
-            )
-        )
-    }
-
-    val bodyFont = remember {
-        FontFamily(
-            Font(
-                familyName = DeviceFontFamilyName("google-sans-flex"),
-                variationSettings = FontVariation.Settings(
-                    FontVariation.Setting("wght", 400f),
-                    FontVariation.Setting("wdth", 100f),
-                    FontVariation.Setting("ROND", 0f)
-                )
-            )
-        )
-    }
+    val titleFont = GoogleSansFlexTitle
+    val bodyFont = GoogleSansFlexBody
 
     // In-App Recording Player
     val mediaPlayer = remember { MediaPlayer() }
@@ -343,7 +316,8 @@ fun FmRecordingsScreen(
             }
     ) {
         SettingsTheme {
-            CompositionLocalProvider(LocalNavController provides navControllerWrapper) {
+            ForceGoogleSansFlexTheme {
+                CompositionLocalProvider(LocalNavController provides navControllerWrapper) {
                 SettingsScaffold(
                     title = stringResource(R.string.fm_over_record_list)
                 ) { innerPadding ->
@@ -763,6 +737,7 @@ fun FmRecordingsScreen(
         }
             }
         }
-    }
+            }
+        }
     }
 }

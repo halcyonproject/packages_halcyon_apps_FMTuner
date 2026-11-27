@@ -133,7 +133,7 @@
     <string name="accessibility_prev">Previous</string>
 
     <!-- Font family for notification artwork text -->
-    <string name="fm_notification_artwork_font_family" translatable="false">roboto</string>
+    <string name="fm_notification_artwork_font_family" translatable="false">google-sans-flex</string>
 
     <!-- Confirmation dialog when tuning during active recording -->
     <string name="stop_recording_dialog_title">Stop recording?</string>
