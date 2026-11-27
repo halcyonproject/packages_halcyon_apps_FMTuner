@@ -82,3 +82,32 @@ cc_library_shared {
         "libnativehelper",
     ],
 }
+
+cc_library_shared {
+    name: "libslsifmjni",
+
+    srcs: [
+        "slsi/FmRadioController_slsi.cpp",
+        "slsi/libfm_jni.cpp",
+    ],
+
+    cflags: [
+        "-Wno-unused-parameter",
+    ],
+
+    local_include_dirs: [
+        "slsi",
+    ],
+
+    header_libs: [
+        "jni_headers",
+    ],
+
+    shared_libs: [
+        "libcutils",
+        "libdl",
+        "liblog",
+        "libmedia",
+        "libnativehelper",
+    ],
+}

@@ -20,6 +20,9 @@ package com.android.fmradio;
  * This class define FM native interface, will description FM native interface
  */
 public class FmNative {
+    private static final String TAG = "FmNative";
+    private static volatile boolean sLowPowerModeSupported = true;
+
     static {
         try {
             System.loadLibrary("mtkfmjni");
@@ -27,7 +30,11 @@ public class FmNative {
             try {
                 System.loadLibrary("qcomfmjni");
             } catch (UnsatisfiedLinkError e2) {
-                System.loadLibrary("fmjni");
+                try {
+                    System.loadLibrary("slsifmjni");
+                } catch (UnsatisfiedLinkError e3) {
+                    System.loadLibrary("fmjni");
+                }
             }
         }
     }
@@ -185,4 +192,36 @@ public class FmNative {
      * @return (true, success; false, failed)
      */
     public static native boolean setNormalPowerMode();
+
+    /**
+     * Safely invoke setLowPowerMode when exported by the active JNI library.
+     */
+    public static boolean trySetLowPowerMode() {
+        if (!sLowPowerModeSupported) {
+            return false;
+        }
+        try {
+            return setLowPowerMode();
+        } catch (UnsatisfiedLinkError e) {
+            sLowPowerModeSupported = false;
+            android.util.Log.w(TAG, "setLowPowerMode unsupported by loaded JNI library");
+            return false;
+        }
+    }
+
+    /**
+     * Safely invoke setNormalPowerMode when exported by the active JNI library.
+     */
+    public static boolean trySetNormalPowerMode() {
+        if (!sLowPowerModeSupported) {
+            return false;
+        }
+        try {
+            return setNormalPowerMode();
+        } catch (UnsatisfiedLinkError e) {
+            sLowPowerModeSupported = false;
+            android.util.Log.w(TAG, "setNormalPowerMode unsupported by loaded JNI library");
+            return false;
+        }
+    }
 }

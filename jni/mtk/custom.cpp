@@ -90,6 +90,7 @@ static struct fm_fake_channel mt6630_fake_ch[] = MT6630_FM_FAKE_CHANNEL;
 static struct fm_fake_channel mt6631_fake_ch[] = MT6631_FM_FAKE_CHANNEL;
 static struct fm_fake_channel mt6632_fake_ch[] = MT6632_FM_FAKE_CHANNEL;
 
+static struct fm_fake_channel custom_fake_ch[FMR_MAX_FAKE_CHANS];
 static struct fm_fake_channel_t fake_ch_info = {0, 0};
 
 int CUST_get_cfg(struct CUST_cfg_ds *cfg)
@@ -99,8 +100,9 @@ int CUST_get_cfg(struct CUST_cfg_ds *cfg)
     struct fm_fake_channel *fake_ch = NULL;
     std::istringstream is;
 
-    cfg->chip = FM_CHIP_UNSUPPORTED;
-    if (property_get("persist.vendor.connsys.fm_chipid", val, NULL)) {
+    cfg->chip = (int16_t) property_get_int32(FM_PROP_PREFIX "chip", FM_CHIP_UNSUPPORTED);
+    if (cfg->chip == FM_CHIP_UNSUPPORTED &&
+        property_get("persist.vendor.connsys.fm_chipid", val, NULL)) {
         if (strcmp(val, "soc") == 0) {
             cfg->chip = FM_CHIP_MT6580;
         } else if (strcmp(val, "mt6620") == 0) {
@@ -111,17 +113,15 @@ int CUST_get_cfg(struct CUST_cfg_ds *cfg)
             cfg->chip = FM_CHIP_MT6628;
         } else if (strcmp(val, "mt6630") == 0) {
             cfg->chip = FM_CHIP_MT6630;
-        } else if (strcmp(val, "mt6631") == 0) {
+        } else if (strstr(val, "mt6631") != NULL) {
             cfg->chip = FM_CHIP_MT6631;
         } else if (strcmp(val, "mt6632") == 0) {
             cfg->chip = FM_CHIP_MT6632;
-        } else if (strcmp(val, "mt6635") == 0) {
+        } else if (strstr(val, "mt6635") != NULL) {
             cfg->chip = FM_CHIP_MT6635;
         }
-        LOGI("%s: CONSYS CHIP ID=%s\n", __FUNCTION__, val);
-    }
-    if (cfg->chip == FM_CHIP_UNSUPPORTED) {
-        cfg->chip = (int16_t) property_get_int32(FM_PROP_PREFIX "chip", FM_CHIP_UNSUPPORTED);
+        LOGI("%s: CONSYS CHIP ID=%s (0x%x)\n", __FUNCTION__, val, cfg->chip);
+    } else {
         LOGI("%s: FM CHIP ID=0x%x\n", __FUNCTION__, cfg->chip);
     }
 
@@ -161,16 +161,13 @@ int CUST_get_cfg(struct CUST_cfg_ds *cfg)
         return -1;
     }
     if (fake_ch_info.size > 0) {
-        fake_ch_info.chan = (struct fm_fake_channel *)malloc(fake_ch_info.size *
-                sizeof(struct fm_fake_channel));
-        if (fake_ch_info.chan != NULL) {
-            for (int i = 0; i < fake_ch_info.size; i++) {
-                std::snprintf(prop, sizeof(prop), "%sfake_chan_%d", FM_PROP_PREFIX, i);
-                if (property_get(prop, val, NULL)) {
-                    fake_ch = &fake_ch_info.chan[i];
-                    is = std::istringstream(val);
-                    is >> fake_ch->freq >> fake_ch->rssi_th;
-                }
+        fake_ch_info.chan = custom_fake_ch;
+        for (int i = 0; i < fake_ch_info.size; i++) {
+            std::snprintf(prop, sizeof(prop), "%sfake_chan_%d", FM_PROP_PREFIX, i);
+            if (property_get(prop, val, NULL)) {
+                fake_ch = &fake_ch_info.chan[i];
+                is = std::istringstream(val);
+                is >> fake_ch->freq >> fake_ch->rssi_th;
             }
         }
     } else {

@@ -38,6 +38,6 @@ public final class FmNative {
     public static int setMute(boolean mute) { return com.android.fmradio.FmNative.setMute(mute); }
     public static int isRdsSupport() { return com.android.fmradio.FmNative.isRdsSupport(); }
     public static int switchAntenna(int antenna) { return com.android.fmradio.FmNative.switchAntenna(antenna); }
-    public static boolean setLowPowerMode() { return com.android.fmradio.FmNative.setLowPowerMode(); }
-    public static boolean setNormalPowerMode() { return com.android.fmradio.FmNative.setNormalPowerMode(); }
+    public static boolean setLowPowerMode() { return com.android.fmradio.FmNative.trySetLowPowerMode(); }
+    public static boolean setNormalPowerMode() { return com.android.fmradio.FmNative.trySetNormalPowerMode(); }
 }
