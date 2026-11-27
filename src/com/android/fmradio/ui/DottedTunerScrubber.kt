@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2026 RevampedFMRadio Project
+ * Copyright (C) 2026 Halcyon Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,36 +18,37 @@
 package com.android.fmradio.ui
 
 import android.view.HapticFeedbackConstants
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlin.math.abs
 import kotlin.math.round
 
 /**
- * Material 3 seekbar with discrete stops and vertical pill thumb indicator.
- * Provides smooth continuous dragging across FM frequencies with tactile haptics.
+ * Larger segmented Material 3 slider for smooth FM tuning without drag jitter.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DottedTunerScrubber(
     currentFrequency: Float,
@@ -56,134 +58,165 @@ fun DottedTunerScrubber(
     enabled: Boolean = true,
     onFrequencySeek: (Float) -> Unit,
     onScrubbingStateChange: (Boolean) -> Unit = {},
+    onPreviewFrequencyChange: (Float) -> Unit = {},
+    externalTuneRevision: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val view = LocalView.current
-    val activeTrackColor = MaterialTheme.colorScheme.primary
-    val inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
-    val activeDotColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.55f)
-    val inactiveDotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+    val interactionSource = remember { MutableInteractionSource() }
 
-    var lastHapticFreq by remember { mutableFloatStateOf(currentFrequency) }
     var isDragging by remember { mutableStateOf(false) }
+    var dragValue by remember { mutableFloatStateOf(currentFrequency) }
+    var pendingSeekFreq by remember { mutableFloatStateOf(currentFrequency) }
+    var lastHapticFreq by remember { mutableFloatStateOf(currentFrequency) }
+    var lastDispatchedFreq by remember { mutableFloatStateOf(currentFrequency) }
+    var settlingTargetFreq by remember { mutableStateOf<Float?>(null) }
 
-    val animatedThumbFraction by animateFloatAsState(
-        targetValue = ((currentFrequency - minFrequency) / (maxFrequency - minFrequency)).coerceIn(0f, 1f),
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "tuner_thumb"
+    // Keep released thumb locked at its target until hardware tune finishes or timeout expires.
+    LaunchedEffect(currentFrequency, isDragging, settlingTargetFreq) {
+        if (isDragging) return@LaunchedEffect
+        val target = settlingTargetFreq
+        if (target != null) {
+            if (abs(currentFrequency - target) < 0.05f) {
+                settlingTargetFreq = null
+                dragValue = currentFrequency
+                pendingSeekFreq = currentFrequency
+                lastHapticFreq = currentFrequency
+                lastDispatchedFreq = currentFrequency
+            }
+            return@LaunchedEffect
+        }
+        dragValue = currentFrequency
+        pendingSeekFreq = currentFrequency
+        lastHapticFreq = currentFrequency
+        lastDispatchedFreq = currentFrequency
+    }
+
+    LaunchedEffect(settlingTargetFreq) {
+        if (settlingTargetFreq == null) return@LaunchedEffect
+        delay(1500L)
+        settlingTargetFreq = null
+    }
+
+    LaunchedEffect(externalTuneRevision) {
+        if (externalTuneRevision > 0 && !isDragging) {
+            settlingTargetFreq = null
+        }
+    }
+
+    LaunchedEffect(enabled) {
+        if (!enabled && !isDragging) {
+            settlingTargetFreq = null
+        }
+    }
+
+    // Coalesce slow-drag frequency steps so native tune ioctls do not block the UI frame rate.
+    LaunchedEffect(isDragging, pendingSeekFreq) {
+        if (!isDragging) return@LaunchedEffect
+        delay(160L)
+        if (pendingSeekFreq != lastDispatchedFreq) {
+            lastDispatchedFreq = pendingSeekFreq
+            onFrequencySeek(pendingSeekFreq)
+        }
+    }
+
+    val displayedValue = (if (isDragging || settlingTargetFreq != null) dragValue else currentFrequency)
+        .coerceIn(minFrequency, maxFrequency)
+    val disabledScale = if (enabled) 1f else 0.38f
+
+    val sliderColors = SliderDefaults.colors(
+        thumbColor = MaterialTheme.colorScheme.primary,
+        activeTrackColor = MaterialTheme.colorScheme.primary,
+        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.65f),
+        inactiveTickColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
     )
+    val activeDotColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.65f * disabledScale)
+    val inactiveDotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f * disabledScale)
 
-    Canvas(
+    Slider(
+        value = displayedValue,
+        onValueChange = { rawValue ->
+            if (!isDragging) {
+                isDragging = true
+                settlingTargetFreq = null
+                onScrubbingStateChange(true)
+            }
+            dragValue = rawValue
+            val stepped = (round(rawValue * 10f) / 10f).coerceIn(minFrequency, maxFrequency)
+            pendingSeekFreq = stepped
+            onPreviewFrequencyChange(stepped)
+            if (stepped != lastHapticFreq) {
+                lastHapticFreq = stepped
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            }
+        },
+        onValueChangeFinished = {
+            val target = pendingSeekFreq
+            dragValue = target
+            settlingTargetFreq = if (abs(currentFrequency - target) < 0.05f) null else target
+            isDragging = false
+            onScrubbingStateChange(false)
+            onPreviewFrequencyChange(target)
+            if (target != lastDispatchedFreq) {
+                lastDispatchedFreq = target
+                onFrequencySeek(target)
+            }
+        },
+        valueRange = minFrequency..maxFrequency,
+        enabled = enabled,
+        interactionSource = interactionSource,
+        colors = sliderColors,
         modifier = modifier
             .fillMaxWidth()
-            .height(36.dp)
-            .padding(horizontal = 24.dp)
-            .alpha(if (enabled) 1f else 0.38f)
-            .pointerInput(minFrequency, maxFrequency, enabled) {
-                if (!enabled) return@pointerInput
-                detectTapGestures { offset ->
-                    val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                    val rawFreq = minFrequency + fraction * (maxFrequency - minFrequency)
-                    val stepped = (round(rawFreq * 10f) / 10f).coerceIn(minFrequency, maxFrequency)
-                    if (stepped != lastHapticFreq) {
-                        lastHapticFreq = stepped
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            .padding(horizontal = 20.dp),
+        thumb = {
+            SliderDefaults.Thumb(
+                interactionSource = interactionSource,
+                colors = sliderColors,
+                enabled = enabled,
+                thumbSize = DpSize(6.dp, 46.dp)
+            )
+        },
+        track = { sliderState ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(20.dp)
+            ) {
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    modifier = Modifier.fillMaxSize(),
+                    enabled = enabled,
+                    colors = sliderColors,
+                    drawStopIndicator = null,
+                    thumbTrackGapSize = 6.dp,
+                    trackInsideCornerSize = 2.dp
+                )
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    val width = size.width
+                    val centerY = size.height / 2f
+                    val dotRadius = 2.5.dp.toPx()
+                    val inset = 10.dp.toPx()
+                    val thumbGapHalf = 11.dp.toPx()
+                    val fraction = ((sliderState.value - minFrequency) / (maxFrequency - minFrequency))
+                        .coerceIn(0f, 1f)
+                    val thumbX = width * fraction
+                    val stopCount = 8
+
+                    for (i in 0 until stopCount) {
+                        val stopFraction = i.toFloat() / (stopCount - 1)
+                        val stopX = inset + (width - inset * 2f) * stopFraction
+                        if (abs(stopX - thumbX) > thumbGapHalf) {
+                            drawCircle(
+                                color = if (stopX < thumbX) activeDotColor else inactiveDotColor,
+                                radius = dotRadius,
+                                center = Offset(stopX, centerY)
+                            )
+                        }
                     }
-                    onFrequencySeek(stepped)
                 }
             }
-            .pointerInput(minFrequency, maxFrequency, enabled) {
-                if (!enabled) return@pointerInput
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        isDragging = true
-                        onScrubbingStateChange(true)
-                        val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                        val rawFreq = minFrequency + fraction * (maxFrequency - minFrequency)
-                        val stepped = (round(rawFreq * 10f) / 10f).coerceIn(minFrequency, maxFrequency)
-                        if (stepped != lastHapticFreq) {
-                            lastHapticFreq = stepped
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        }
-                        onFrequencySeek(stepped)
-                    },
-                    onDragEnd = {
-                        isDragging = false
-                        onScrubbingStateChange(false)
-                    },
-                    onDragCancel = {
-                        isDragging = false
-                        onScrubbingStateChange(false)
-                    },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        val fraction = (change.position.x / size.width).coerceIn(0f, 1f)
-                        val rawFreq = minFrequency + fraction * (maxFrequency - minFrequency)
-                        val stepped = (round(rawFreq * 10f) / 10f).coerceIn(minFrequency, maxFrequency)
-                        if (stepped != lastHapticFreq) {
-                            lastHapticFreq = stepped
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            onFrequencySeek(stepped)
-                        }
-                    }
-                )
-            }
-    ) {
-        val width = size.width
-        val height = size.height
-        val centerY = height / 2f
-        val trackHeight = 6.dp.toPx()
-        val thumbWidth = 4.5.dp.toPx()
-        val thumbHeight = 26.dp.toPx()
-        val thumbCorner = thumbWidth / 2f
-
-        val thumbX = (width * animatedThumbFraction).coerceIn(thumbWidth / 2f, width - thumbWidth / 2f)
-
-        // 1. Inactive Track (Full background track)
-        drawRoundRect(
-            color = inactiveTrackColor,
-            topLeft = Offset(0f, centerY - trackHeight / 2f),
-            size = Size(width, trackHeight),
-            cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f)
-        )
-
-        // 2. Active Track (From start to thumb position)
-        if (thumbX > 0f) {
-            drawRoundRect(
-                color = activeTrackColor,
-                topLeft = Offset(0f, centerY - trackHeight / 2f),
-                size = Size(thumbX, trackHeight),
-                cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f)
-            )
         }
-
-        // 3. Discrete Stops / Dots across the track (8 discrete evenly spaced points)
-        val stopCount = 8
-        val dotRadius = 2.dp.toPx()
-        for (i in 0 until stopCount) {
-            val stopFraction = i.toFloat() / (stopCount - 1)
-            val stopX = (width * stopFraction).coerceIn(dotRadius * 2f, width - dotRadius * 2f)
-            val isPassed = stopX <= thumbX
-
-            // Avoid drawing the dot directly underneath the thumb bar
-            if (kotlin.math.abs(stopX - thumbX) > (thumbWidth + dotRadius)) {
-                drawCircle(
-                    color = if (isPassed) activeDotColor else inactiveDotColor,
-                    radius = dotRadius,
-                    center = Offset(stopX, centerY)
-                )
-            }
-        }
-
-        // 4. Vertical Pill Thumb Indicator
-        drawRoundRect(
-            color = activeTrackColor,
-            topLeft = Offset(thumbX - thumbWidth / 2f, centerY - thumbHeight / 2f),
-            size = Size(thumbWidth, thumbHeight),
-            cornerRadius = CornerRadius(thumbCorner, thumbCorner)
-        )
-    }
+    )
 }

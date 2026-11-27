@@ -57,6 +57,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -66,6 +67,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -97,13 +99,16 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -111,12 +116,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.TonalToggleButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -124,7 +133,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
@@ -140,20 +151,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.fmradio.FmPreferences
@@ -239,6 +252,35 @@ fun FmPlayerScreen(
     val artworkBitmap = artworkResult?.bitmap
 
     var isScrubbing by remember { mutableStateOf(false) }
+    var scrubbingFrequency by remember { mutableFloatStateOf(currentFrequency) }
+    var pendingSeekTarget by remember { mutableStateOf<Float?>(null) }
+    var externalTuneRevision by remember { mutableIntStateOf(0) }
+    LaunchedEffect(currentFrequency, isScrubbing) {
+        if (!isScrubbing) {
+            scrubbingFrequency = currentFrequency
+        }
+    }
+    LaunchedEffect(currentFrequency, pendingSeekTarget) {
+        val target = pendingSeekTarget
+        if (target != null && abs(currentFrequency - target) < 0.05f) {
+            pendingSeekTarget = null
+        }
+    }
+    LaunchedEffect(pendingSeekTarget) {
+        if (pendingSeekTarget == null) return@LaunchedEffect
+        delay(1500L)
+        pendingSeekTarget = null
+    }
+    LaunchedEffect(isPlaying, isSeeking) {
+        if (!isPlaying || isSeeking) {
+            pendingSeekTarget = null
+        }
+    }
+    val displayedFrequency = when {
+        isScrubbing -> scrubbingFrequency
+        pendingSeekTarget != null -> pendingSeekTarget!!
+        else -> currentFrequency
+    }
     var isSettingsVisible by remember { mutableStateOf(false) }
     var reduceMotion by remember { mutableStateOf(FmPreferences.isReduceMotionEnabled(context)) }
 
@@ -471,7 +513,7 @@ fun FmPlayerScreen(
                             .fillMaxHeight()
                             .padding(horizontal = 20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.SpaceEvenly
+                        verticalArrangement = Arrangement.Center
                     ) {
                         TopStatusPillGroup(
                             isSpeakerUsed = isSpeakerUsed,
@@ -483,8 +525,10 @@ fun FmPlayerScreen(
                             onOpenSettingsClick = { isSettingsVisible = true }
                         )
 
+                        Spacer(modifier = Modifier.height(8.dp))
+
                         StationTitleBlock(
-                            currentFrequency = currentFrequency,
+                            currentFrequency = displayedFrequency,
                             stationName = stationName,
                             radioText = radioText,
                             isPlaying = isPlaying,
@@ -495,28 +539,66 @@ fun FmPlayerScreen(
                             isScrubbing = isScrubbing
                         )
 
+                        Spacer(modifier = Modifier.height(8.dp))
+
                         DottedTunerScrubber(
                             currentFrequency = currentFrequency,
                             isPlaying = isPlaying,
                             enabled = controlsEnabled,
-                            onFrequencySeek = { freq -> safeChangeStation { onFrequencySeek(freq) } },
+                            onFrequencySeek = { freq ->
+                                safeChangeStation {
+                                    pendingSeekTarget = freq
+                                    onFrequencySeek(freq)
+                                }
+                            },
                             onScrubbingStateChange = { isScrubbing = it },
+                            onPreviewFrequencyChange = { scrubbingFrequency = it },
+                            externalTuneRevision = externalTuneRevision,
                             modifier = Modifier.padding(vertical = 2.dp)
                         )
+
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         PlaybackControlsRow(
                             isPlaying = isPlaying,
                             isSeeking = isSeeking,
-                            onPrevStationClick = { safeChangeStation(onPrevStationClick) },
+                            isCompactHeight = true,
+                            onPrevStationClick = {
+                                safeChangeStation {
+                                    pendingSeekTarget = null
+                                    externalTuneRevision++
+                                    onPrevStationClick()
+                                }
+                            },
                             onPlayPauseClick = onPlayPauseClick,
-                            onNextStationClick = { safeChangeStation(onNextStationClick) }
+                            onNextStationClick = {
+                                safeChangeStation {
+                                    pendingSeekTarget = null
+                                    externalTuneRevision++
+                                    onNextStationClick()
+                                }
+                            }
                         )
+
+                        Spacer(modifier = Modifier.height(14.dp))
 
                         BottomControlsBar(
                             isRecording = isRecording,
                             controlsEnabled = controlsEnabled,
-                            onTuneDownClick = { safeChangeStation(onTuneDownClick) },
-                            onTuneUpClick = { safeChangeStation(onTuneUpClick) },
+                            onTuneDownClick = {
+                                safeChangeStation {
+                                    pendingSeekTarget = null
+                                    externalTuneRevision++
+                                    onTuneDownClick()
+                                }
+                            },
+                            onTuneUpClick = {
+                                safeChangeStation {
+                                    pendingSeekTarget = null
+                                    externalTuneRevision++
+                                    onTuneUpClick()
+                                }
+                            },
                             onRecordClick = onRecordClick,
                             onStartRecording = onStartRecording,
                             onStopRecording = onStopRecording,
@@ -528,33 +610,33 @@ fun FmPlayerScreen(
                     }
                 }
             } else {
-                // Portrait Layout
-                Column(
+                // Portrait Layout with equal top/bottom spacing around the title & artist block
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
-                        .navigationBarsPadding(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.SpaceBetween
+                        .navigationBarsPadding()
                 ) {
-                    TopStatusPillGroup(
-                        isSpeakerUsed = isSpeakerUsed,
-                        isAudioRoutingAvailable = isAudioRoutingAvailable,
-                        isRecording = isRecording,
-                        recordDurationMs = recordDurationMs,
-                        onToggleSpeakerClick = onToggleSpeakerClick,
-                        onRecordClick = onRecordClick,
-                        onOpenSettingsClick = { isSettingsVisible = true },
-                        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
-                    )
+                    val maxArtworkSize = (maxHeight - 368.dp)
+                        .coerceAtLeast(180.dp)
+                        .coerceAtMost(maxWidth - 48.dp)
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp)
-                            .weight(1.0f),
-                        contentAlignment = Alignment.Center
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Top
                     ) {
+                        TopStatusPillGroup(
+                            isSpeakerUsed = isSpeakerUsed,
+                            isAudioRoutingAvailable = isAudioRoutingAvailable,
+                            isRecording = isRecording,
+                            recordDurationMs = recordDurationMs,
+                            onToggleSpeakerClick = onToggleSpeakerClick,
+                            onRecordClick = onRecordClick,
+                            onOpenSettingsClick = { isSettingsVisible = true },
+                            modifier = Modifier.padding(top = 6.dp, bottom = 10.dp)
+                        )
+
                         ArtworkHeroCard(
                             artworkBitmap = artworkBitmap,
                             isSeeking = isSeeking,
@@ -562,59 +644,101 @@ fun FmPlayerScreen(
                             controlsEnabled = controlsEnabled,
                             onToggleFavoriteClick = onToggleFavoriteClick,
                             hasEntered = hasEntered,
-                            modifier = Modifier
-                                .fillMaxWidth(0.92f)
-                                .aspectRatio(1.0f)
+                            modifier = Modifier.size(maxArtworkSize)
                         )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .heightIn(min = 72.dp)
+                                .padding(horizontal = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            StationTitleBlock(
+                                currentFrequency = displayedFrequency,
+                                stationName = stationName,
+                                radioText = radioText,
+                                isPlaying = isPlaying,
+                                titleFont = currentTitleFont,
+                                fontScaleX = fontScaleX,
+                                fontScaleY = fontScaleY,
+                                reduceMotion = reduceMotion,
+                                isScrubbing = isScrubbing
+                            )
+                        }
+
+                        DottedTunerScrubber(
+                            currentFrequency = currentFrequency,
+                            isPlaying = isPlaying,
+                            enabled = controlsEnabled,
+                            onFrequencySeek = { freq ->
+                                safeChangeStation {
+                                    pendingSeekTarget = freq
+                                    onFrequencySeek(freq)
+                                }
+                            },
+                            onScrubbingStateChange = { isScrubbing = it },
+                            onPreviewFrequencyChange = { scrubbingFrequency = it },
+                            externalTuneRevision = externalTuneRevision,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        PlaybackControlsRow(
+                            isPlaying = isPlaying,
+                            isSeeking = isSeeking,
+                            isCompactHeight = false,
+                            onPrevStationClick = {
+                                safeChangeStation {
+                                    pendingSeekTarget = null
+                                    externalTuneRevision++
+                                    onPrevStationClick()
+                                }
+                            },
+                            onPlayPauseClick = onPlayPauseClick,
+                            onNextStationClick = {
+                                safeChangeStation {
+                                    pendingSeekTarget = null
+                                    externalTuneRevision++
+                                    onNextStationClick()
+                                }
+                            },
+                            modifier = Modifier.padding(horizontal = 20.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        BottomControlsBar(
+                            isRecording = isRecording,
+                            controlsEnabled = controlsEnabled,
+                            onTuneDownClick = {
+                                safeChangeStation {
+                                    pendingSeekTarget = null
+                                    externalTuneRevision++
+                                    onTuneDownClick()
+                                }
+                            },
+                            onTuneUpClick = {
+                                safeChangeStation {
+                                    pendingSeekTarget = null
+                                    externalTuneRevision++
+                                    onTuneUpClick()
+                                }
+                            },
+                            onRecordClick = onRecordClick,
+                            onStartRecording = onStartRecording,
+                            onStopRecording = onStopRecording,
+                            onOpenFavoritesClick = {
+                                onReloadFavorites()
+                                showBottomSheet = true
+                            },
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
                     }
-
-                    StationTitleBlock(
-                        currentFrequency = currentFrequency,
-                        stationName = stationName,
-                        radioText = radioText,
-                        isPlaying = isPlaying,
-                        titleFont = currentTitleFont,
-                        fontScaleX = fontScaleX,
-                        fontScaleY = fontScaleY,
-                        reduceMotion = reduceMotion,
-                        isScrubbing = isScrubbing,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
-                    )
-
-                    DottedTunerScrubber(
-                        currentFrequency = currentFrequency,
-                        isPlaying = isPlaying,
-                        enabled = controlsEnabled,
-                        onFrequencySeek = { freq -> safeChangeStation { onFrequencySeek(freq) } },
-                        onScrubbingStateChange = { isScrubbing = it },
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-
-                    PlaybackControlsRow(
-                        isPlaying = isPlaying,
-                        isSeeking = isSeeking,
-                        onPrevStationClick = { safeChangeStation(onPrevStationClick) },
-                        onPlayPauseClick = onPlayPauseClick,
-                        onNextStationClick = { safeChangeStation(onNextStationClick) },
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
-                    )
-
-                    BottomControlsBar(
-                        isRecording = isRecording,
-                        controlsEnabled = controlsEnabled,
-                        onTuneDownClick = { safeChangeStation(onTuneDownClick) },
-                        onTuneUpClick = { safeChangeStation(onTuneUpClick) },
-                        onRecordClick = onRecordClick,
-                        onStartRecording = onStartRecording,
-                        onStopRecording = onStopRecording,
-                        onOpenFavoritesClick = {
-                            onReloadFavorites()
-                            showBottomSheet = true
-                        },
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
         }
@@ -626,7 +750,11 @@ fun FmPlayerScreen(
                 currentFrequency = currentFrequency,
                 sheetState = sheetState,
                 onStationSelect = { freq ->
-                    safeChangeStation { onStationSelect(freq) }
+                    safeChangeStation {
+                        pendingSeekTarget = null
+                        externalTuneRevision++
+                        onStationSelect(freq)
+                    }
                 },
                 onDismissRequest = { showBottomSheet = false },
                 onReloadFavorites = onReloadFavorites
@@ -664,7 +792,11 @@ fun FmPlayerScreen(
         // Confirmation Dialog when attempting to tune away while recording
         if (pendingChannelChange != null) {
             AlertDialog(
-                onDismissRequest = { pendingChannelChange = null },
+                onDismissRequest = {
+                    pendingChannelChange = null
+                    pendingSeekTarget = null
+                    externalTuneRevision++
+                },
                 icon = {
                     Icon(
                         imageVector = Icons.Filled.Warning,
@@ -702,7 +834,11 @@ fun FmPlayerScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { pendingChannelChange = null }) {
+                    TextButton(onClick = {
+                        pendingChannelChange = null
+                        pendingSeekTarget = null
+                        externalTuneRevision++
+                    }) {
                         Text(stringResource(android.R.string.cancel))
                     }
                 },
@@ -894,8 +1030,9 @@ private fun TopStatusPillGroup(
 }
 
 /**
- * Hero artwork card with animated first-showing entrance scale, seeking radar overlay, and bottom-right favorite FAB.
+ * Hero artwork card with animated entrance scale, M3 seeking loading indicator, and favorite button.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ArtworkHeroCard(
     artworkBitmap: Bitmap?,
@@ -907,7 +1044,7 @@ private fun ArtworkHeroCard(
     modifier: Modifier = Modifier
 ) {
     val targetCardScale = if (isSeeking) {
-        0.84f
+        0.92f
     } else if (artworkBitmap != null && hasEntered) {
         1.0f
     } else {
@@ -947,99 +1084,33 @@ private fun ArtworkHeroCard(
                             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(36.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            strokeWidth = 3.dp
+                        LoadingIndicator(
+                            modifier = Modifier.size(48.dp),
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
             }
 
-            // Radar Scanning Overlay when seeking
-            val radarAlpha by animateFloatAsState(
+            // Expressive Material 3 LoadingIndicator overlay while searching stations
+            val loadingAlpha by animateFloatAsState(
                 targetValue = if (isSeeking) 1.0f else 0.0f,
-                animationSpec = tween(durationMillis = 280),
-                label = "radar_alpha"
+                animationSpec = tween(durationMillis = 250),
+                label = "seeking_loading_alpha"
             )
-            if (radarAlpha > 0.01f) {
-                val radarTransition = rememberInfiniteTransition(label = "radar_transition")
-                val sweepAngle by radarTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 360f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(2200, easing = LinearEasing),
-                        repeatMode = RepeatMode.Restart
-                    ),
-                    label = "radar_sweep"
-                )
-                val waveProgress by radarTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1800, easing = LinearEasing),
-                        repeatMode = RepeatMode.Restart
-                    ),
-                    label = "radar_wave"
-                )
-
-                val primaryColor = MaterialTheme.colorScheme.primary
-                val scrimColor = MaterialTheme.colorScheme.scrim
-
+            if (loadingAlpha > 0.01f) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(scrimColor.copy(alpha = 0.45f * radarAlpha)),
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.40f * loadingAlpha))
+                        .alpha(loadingAlpha),
                     contentAlignment = Alignment.Center
                 ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val center = Offset(size.width / 2f, size.height / 2f)
-                        val maxRadius = size.minDimension / 2f * 0.88f
-
-                        // Fading concentric radar pulse circles
-                        for (i in 0..2) {
-                            val phase = (waveProgress + i * 0.333f) % 1f
-                            val r = maxRadius * phase
-                            val ringAlpha = (1f - phase).coerceIn(0f, 1f) * 0.55f * radarAlpha
-                            drawCircle(
-                                color = primaryColor.copy(alpha = ringAlpha),
-                                radius = r,
-                                center = center,
-                                style = Stroke(width = 2.5f)
-                            )
-                        }
-
-                        // Seamless rotating radar sweep beam via canvas rotation (eliminates 0-degree seam clipping)
-                        withTransform({
-                            rotate(degrees = sweepAngle, pivot = center)
-                        }) {
-                            drawArc(
-                                brush = Brush.sweepGradient(
-                                    0.833f to Color.Transparent,
-                                    1.0f to primaryColor.copy(alpha = 0.38f * radarAlpha),
-                                    center = center
-                                ),
-                                startAngle = -60f,
-                                sweepAngle = 60f,
-                                useCenter = true,
-                                topLeft = Offset(center.x - maxRadius, center.y - maxRadius),
-                                size = Size(maxRadius * 2f, maxRadius * 2f)
-                            )
-                            drawLine(
-                                color = primaryColor.copy(alpha = 0.85f * radarAlpha),
-                                start = center,
-                                end = Offset(center.x + maxRadius, center.y),
-                                strokeWidth = 2.5f
-                            )
-                        }
-
-                        // Central pulsing beacon
-                        drawCircle(
-                            color = primaryColor.copy(alpha = radarAlpha),
-                            radius = 6.dp.toPx(),
-                            center = center
-                        )
-                    }
+                    ContainedLoadingIndicator(
+                        modifier = Modifier.size(64.dp),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        indicatorColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 }
             }
 
@@ -1141,57 +1212,100 @@ private fun StationTitleBlock(
             },
             label = "title_directional_slide"
         ) { targetTitle ->
-            Text(
-                text = targetTitle,
-                style = MaterialTheme.typography.displaySmall.copy(
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                val density = LocalDensity.current
+                val layoutDirection = LocalLayoutDirection.current
+                val textMeasurer = rememberTextMeasurer()
+                val titleStyle = MaterialTheme.typography.displaySmall.copy(
                     fontFamily = titleFont,
                     fontSize = 40.sp,
                     lineHeight = 46.sp,
                     letterSpacing = (-0.5).sp,
                     textAlign = TextAlign.Center
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
+                )
+                val measuredWidthPx = remember(targetTitle, titleStyle) {
+                    textMeasurer.measure(
+                        text = targetTitle,
+                        style = titleStyle,
+                        maxLines = 1,
+                        softWrap = false,
+                        constraints = Constraints()
+                    ).size.width
+                }
+                val overflowTolerancePx = with(density) { 4.dp.toPx() }
+                val needsMarquee = measuredWidthPx * fontScaleX > constraints.maxWidth + overflowTolerancePx
+
+                val titleModifier = Modifier
                     .fillMaxWidth()
                     .wrapContentWidth(Alignment.CenterHorizontally)
-                    .graphicsLayer {
-                        scaleX = fontScaleX
-                        scaleY = fontScaleY
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    }
-                    .drawWithContent {
-                        drawContent()
-                        val fadeWidth = 24.dp.toPx()
-                        if (size.width > fadeWidth * 2) {
-                            val brush = Brush.horizontalGradient(
-                                0f to Color.Transparent,
-                                (fadeWidth / size.width) to Color.Black,
-                                (1f - fadeWidth / size.width) to Color.Black,
-                                1f to Color.Transparent
-                            )
-                            drawRect(brush = brush, blendMode = BlendMode.DstIn)
+                    .then(
+                        if (needsMarquee) {
+                            Modifier
+                                .graphicsLayer {
+                                    scaleX = fontScaleX
+                                    scaleY = fontScaleY
+                                    compositingStrategy = CompositingStrategy.Offscreen
+                                }
+                                .drawWithContent {
+                                    drawContent()
+                                    val fadeWidth = 24.dp.toPx()
+                                    if (size.width > fadeWidth * 2) {
+                                        val startStop = fadeWidth / size.width
+                                        val endStop = 1f - startStop
+                                        val brush = if (layoutDirection == LayoutDirection.Rtl) {
+                                            Brush.horizontalGradient(
+                                                0f to Color.Transparent,
+                                                startStop to Color.Black,
+                                                endStop to Color.Black,
+                                                1f to Color.Transparent,
+                                                startX = size.width,
+                                                endX = 0f
+                                            )
+                                        } else {
+                                            Brush.horizontalGradient(
+                                                0f to Color.Transparent,
+                                                startStop to Color.Black,
+                                                endStop to Color.Black,
+                                                1f to Color.Transparent
+                                            )
+                                        }
+                                        drawRect(brush = brush, blendMode = BlendMode.DstIn)
+                                    }
+                                }
+                                .then(if (isPlaying) Modifier.basicMarquee() else Modifier)
+                        } else {
+                            Modifier.graphicsLayer {
+                                scaleX = fontScaleX
+                                scaleY = fontScaleY
+                            }
                         }
-                    }
-                    .then(if (isPlaying) Modifier.basicMarquee() else Modifier)
-            )
+                    )
+
+                Text(
+                    text = targetTitle,
+                    style = titleStyle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = titleModifier
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Reserved Subtitle Box to prevent title jumping when subtitle appears / disappears
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(28.dp),
-            contentAlignment = Alignment.Center
+        this@Column.AnimatedVisibility(
+            visible = showSubtitle,
+            enter = if (reduceMotion) fadeIn(tween(200)) else fadeIn(tween(250)) + slideInVertically(animationSpec = tween(250)) { it / 2 },
+            exit = if (reduceMotion) fadeOut(tween(200)) else fadeOut(tween(200)) + slideOutVertically(animationSpec = tween(200)) { -it / 2 }
         ) {
-            this@Column.AnimatedVisibility(
-                visible = showSubtitle,
-                enter = if (reduceMotion) fadeIn(tween(200)) else fadeIn(tween(250)) + slideInVertically(animationSpec = tween(250)) { it / 2 },
-                exit = if (reduceMotion) fadeOut(tween(200)) else fadeOut(tween(200)) + slideOutVertically(animationSpec = tween(200)) { -it / 2 }
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Spacer(modifier = Modifier.height(4.dp))
+
                 // Subtitle with smooth directional slide + fade transition when frequency or RDS updates
                 AnimatedContent(
                     targetState = displaySubtitle,
@@ -1236,6 +1350,7 @@ private fun StationTitleBlock(
 private fun PlaybackControlsRow(
     isPlaying: Boolean,
     isSeeking: Boolean,
+    isCompactHeight: Boolean = false,
     onPrevStationClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextStationClick: () -> Unit,
@@ -1256,34 +1371,27 @@ private fun PlaybackControlsRow(
         remember { mutableFloatStateOf(1.0f) }
     }
 
-    val centerBtnWidth by animateDpAsState(
-        targetValue = if (isPlaying) 156.dp else 84.dp,
+    val rowHeight = if (isCompactHeight) 88.dp else 104.dp
+    val centerWeight by animateFloatAsState(
+        targetValue = if (isPlaying) 1.85f else 1.15f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
         ),
-        label = "center_btn_width"
+        label = "center_btn_weight"
     )
     val centerBtnCorner by animateDpAsState(
-        targetValue = if (isPlaying) 40.dp else 24.dp,
+        targetValue = if (isPlaying) 52.dp else 32.dp,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
         ),
         label = "center_btn_corner"
     )
-    val sideBtnWidth by animateDpAsState(
-        targetValue = if (isPlaying) 74.dp else 84.dp,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "side_btn_width"
-    )
 
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Previous Station (Disabled when paused)
@@ -1291,10 +1399,10 @@ private fun PlaybackControlsRow(
             onClick = onPrevStationClick,
             enabled = isPlaying && !isSeeking,
             modifier = Modifier
-                .width(sideBtnWidth)
-                .height(80.dp)
+                .weight(1f)
+                .height(rowHeight)
                 .scale(if (isSeeking) seekPulseScale else 1.0f),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(32.dp),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 contentColor = MaterialTheme.colorScheme.onSurface,
@@ -1305,18 +1413,16 @@ private fun PlaybackControlsRow(
             Icon(
                 imageVector = Icons.Filled.SkipPrevious,
                 contentDescription = stringResource(R.string.talk_prev_station),
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(if (isCompactHeight) 36.dp else 40.dp)
             )
         }
-
-        Spacer(modifier = Modifier.width(12.dp))
 
         // Central Primary Play / Pause (Morphs between squircle and stadium)
         FilledIconButton(
             onClick = onPlayPauseClick,
             modifier = Modifier
-                .width(centerBtnWidth)
-                .height(80.dp),
+                .weight(centerWeight)
+                .height(rowHeight),
             shape = RoundedCornerShape(centerBtnCorner),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -1330,21 +1436,19 @@ private fun PlaybackControlsRow(
                 } else {
                     stringResource(R.string.accessibility_play)
                 },
-                modifier = Modifier.size(38.dp)
+                modifier = Modifier.size(if (isCompactHeight) 44.dp else 50.dp)
             )
         }
-
-        Spacer(modifier = Modifier.width(12.dp))
 
         // Next Station (Disabled when paused)
         FilledIconButton(
             onClick = onNextStationClick,
             enabled = isPlaying && !isSeeking,
             modifier = Modifier
-                .width(sideBtnWidth)
-                .height(80.dp)
+                .weight(1f)
+                .height(rowHeight)
                 .scale(if (isSeeking) seekPulseScale else 1.0f),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(32.dp),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 contentColor = MaterialTheme.colorScheme.onSurface,
@@ -1355,15 +1459,16 @@ private fun PlaybackControlsRow(
             Icon(
                 imageVector = Icons.Filled.SkipNext,
                 contentDescription = stringResource(R.string.talk_next_station),
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(if (isCompactHeight) 36.dp else 40.dp)
             )
         }
     }
 }
 
 /**
- * Bottom Auxiliary Row: Granular Stepping & Mini Button Groups.
+ * Bottom Auxiliary Row: Granular Stepping & Connected Material 3 Expressive Button Group.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun BottomControlsBar(
     isRecording: Boolean,
@@ -1391,11 +1496,11 @@ private fun BottomControlsBar(
             color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
                 alpha = if (controlsEnabled) 1f else 0.38f
             ),
-            modifier = Modifier.height(38.dp)
+            modifier = Modifier.height(48.dp)
         ) {
             Row(
                 modifier = Modifier
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
                     .alpha(if (controlsEnabled) 1f else 0.38f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1403,7 +1508,7 @@ private fun BottomControlsBar(
                 Icon(
                     imageVector = Icons.Filled.ChevronLeft,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
@@ -1415,34 +1520,32 @@ private fun BottomControlsBar(
             }
         }
 
-        // Center Mini Button Group (Recording List, Record/Stop Button, Favorites List)
+        // Connected Center Button Group (Recording List, Record/Stop, Favorites)
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. Mini Recording History List Button
-            Surface(
-                onClick = onRecordClick,
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.size(width = 46.dp, height = 38.dp)
+            TonalToggleButton(
+                checked = false,
+                onCheckedChange = { onRecordClick() },
+                shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                colors = ToggleButtonDefaults.tonalToggleButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                modifier = Modifier.size(width = 50.dp, height = 48.dp)
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                        contentDescription = stringResource(R.string.fm_over_record_list),
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                    contentDescription = stringResource(R.string.fm_over_record_list),
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
-            // 2. Mini Record / Stop Button (Alert red when recording, disabled when paused/seeking)
-            Surface(
-                onClick = {
+            ToggleButton(
+                checked = isRecording,
+                onCheckedChange = {
                     if (isRecording) {
                         onStopRecording()
                     } else {
@@ -1450,54 +1553,44 @@ private fun BottomControlsBar(
                     }
                 },
                 enabled = recordBtnEnabled,
-                shape = RoundedCornerShape(14.dp),
-                color = if (isRecording) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.tertiaryContainer.copy(
-                        alpha = if (controlsEnabled) 1f else 0.38f
-                    )
-                },
-                modifier = Modifier.size(width = 52.dp, height = 38.dp)
+                shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
+                colors = ToggleButtonDefaults.toggleButtonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    checkedContainerColor = MaterialTheme.colorScheme.error,
+                    checkedContentColor = MaterialTheme.colorScheme.onError,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.38f),
+                    disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                ),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                modifier = Modifier.size(width = 56.dp, height = 48.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .alpha(if (recordBtnEnabled) 1f else 0.38f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isRecording) Icons.Filled.Stop else Icons.Filled.FiberManualRecord,
-                        contentDescription = if (isRecording) stringResource(R.string.stop_record) else stringResource(R.string.record_title),
-                        tint = if (isRecording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.size(if (isRecording) 18.dp else 12.dp)
-                    )
-                }
+                Icon(
+                    imageVector = if (isRecording) Icons.Filled.Stop else Icons.Filled.FiberManualRecord,
+                    contentDescription = if (isRecording) stringResource(R.string.stop_record) else stringResource(R.string.record_title),
+                    modifier = Modifier.size(if (isRecording) 20.dp else 14.dp)
+                )
             }
 
-            // 3. Mini Favorites List Button (Disabled when paused/seeking)
-            Surface(
-                onClick = onOpenFavoritesClick,
+            TonalToggleButton(
+                checked = false,
+                onCheckedChange = { onOpenFavoritesClick() },
                 enabled = controlsEnabled,
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
-                    alpha = if (controlsEnabled) 1f else 0.38f
+                shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                colors = ToggleButtonDefaults.tonalToggleButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.38f),
+                    disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                 ),
-                modifier = Modifier.size(width = 46.dp, height = 38.dp)
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                modifier = Modifier.size(width = 50.dp, height = 48.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .alpha(if (controlsEnabled) 1f else 0.38f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ListAlt,
-                        contentDescription = stringResource(R.string.favorites),
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ListAlt,
+                    contentDescription = stringResource(R.string.favorites),
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 
@@ -1509,11 +1602,11 @@ private fun BottomControlsBar(
             color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
                 alpha = if (controlsEnabled) 1f else 0.38f
             ),
-            modifier = Modifier.height(38.dp)
+            modifier = Modifier.height(48.dp)
         ) {
             Row(
                 modifier = Modifier
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
                     .alpha(if (controlsEnabled) 1f else 0.38f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1527,7 +1620,7 @@ private fun BottomControlsBar(
                 Icon(
                     imageVector = Icons.Filled.ChevronRight,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
