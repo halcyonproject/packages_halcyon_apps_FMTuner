@@ -26,6 +26,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -53,6 +54,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -125,7 +127,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
@@ -139,6 +143,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -207,16 +212,48 @@ fun FmPlayerScreen(
     onDeleteRecording: (RecordingItem) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val colorScheme = MaterialTheme.colorScheme
+    val isDarkTheme = isSystemInDarkTheme()
     val freqInt = (currentFrequency * 10).toInt()
-    val artworkBitmap by produceState<Bitmap?>(initialValue = null, key1 = freqInt, key2 = stationName) {
+    val artworkResult by produceState<StationArtworkGenerator.StationArtworkResult?>(
+        initialValue = null,
+        key1 = freqInt,
+        key2 = Triple(colorScheme.primary, colorScheme.tertiary, isDarkTheme)
+    ) {
         value = withContext(Dispatchers.Default) {
-            StationArtworkGenerator.getStationArtwork(context, freqInt, stationName)
+            StationArtworkGenerator.getStationArtworkResult(
+                context,
+                freqInt,
+                stationName,
+                colorScheme.primary.toArgb(),
+                colorScheme.secondary.toArgb(),
+                colorScheme.tertiary.toArgb(),
+                colorScheme.primaryContainer.toArgb(),
+                colorScheme.secondaryContainer.toArgb(),
+                colorScheme.tertiaryContainer.toArgb(),
+                colorScheme.surfaceContainerLow.toArgb(),
+                isDarkTheme
+            )
         }
     }
+    val artworkBitmap = artworkResult?.bitmap
 
     var isScrubbing by remember { mutableStateOf(false) }
     var isSettingsVisible by remember { mutableStateOf(false) }
     var reduceMotion by remember { mutableStateOf(FmPreferences.isReduceMotionEnabled(context)) }
+
+    val dominantGlowTarget = artworkResult?.let { Color(it.dominantColor) } ?: colorScheme.primary
+    val secondaryGlowTarget = artworkResult?.let { Color(it.secondaryColor) } ?: colorScheme.tertiary
+    val glowPrimary by animateColorAsState(
+        targetValue = dominantGlowTarget,
+        animationSpec = if (reduceMotion) snap() else tween(durationMillis = 550, easing = FastOutSlowInEasing),
+        label = "glow_primary"
+    )
+    val glowSecondary by animateColorAsState(
+        targetValue = secondaryGlowTarget,
+        animationSpec = if (reduceMotion) snap() else tween(durationMillis = 550, easing = FastOutSlowInEasing),
+        label = "glow_secondary"
+    )
 
     // App Entrance Transition on Fresh Open
     var hasEntered by remember { mutableStateOf(false) }
@@ -393,6 +430,14 @@ fun FmPlayerScreen(
                 .alpha(entranceAlpha)
                 .graphicsLayer { translationY = entranceOffsetY.dp.toPx() }
         ) {
+            AmbientArtworkGlow(
+                primaryColor = glowPrimary,
+                secondaryColor = glowSecondary,
+                isPlaying = isPlaying,
+                isLandscape = isLandscape,
+                isDarkTheme = isDarkTheme,
+                modifier = Modifier.fillMaxSize()
+            )
             if (isLandscape) {
                 // Adaptive Landscape Layout (Symmetrical 50/50 two-pane presentation in pure fullscreen)
                 Row(
@@ -665,6 +710,69 @@ fun FmPlayerScreen(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
             )
         }
+    }
+}
+
+/**
+ * Soft blurred backdrop glow derived from the active artwork's dominant and secondary colors.
+ */
+@Composable
+private fun AmbientArtworkGlow(
+    primaryColor: Color,
+    secondaryColor: Color,
+    isPlaying: Boolean,
+    isLandscape: Boolean,
+    isDarkTheme: Boolean,
+    modifier: Modifier = Modifier
+) {
+    // Cap alpha so foreground text over the surface preserves WCAG AA contrast in both themes
+    val primaryAlpha = if (isDarkTheme) {
+        if (isPlaying) 0.34f else 0.22f
+    } else {
+        if (isPlaying) 0.36f else 0.26f
+    }
+    val secondaryAlpha = if (isDarkTheme) {
+        if (isPlaying) 0.22f else 0.14f
+    } else {
+        if (isPlaying) 0.28f else 0.20f
+    }
+    val blurRadius = if (isDarkTheme) 64.dp else 48.dp
+    val primaryMidStop = if (isDarkTheme) 0.45f else 0.65f
+    val primaryMidFraction = if (isDarkTheme) 0.60f else 0.58f
+    val secondaryMidStop = if (isDarkTheme) 0.40f else 0.60f
+    val secondaryMidFraction = if (isDarkTheme) 0.65f else 0.62f
+
+    Canvas(
+        modifier = modifier.blur(radius = blurRadius, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+    ) {
+        val centerX = if (isLandscape) size.width * 0.27f else size.width * 0.5f
+        val centerY = if (isLandscape) size.height * 0.50f else size.height * 0.34f
+        val primaryRadius = size.minDimension * (if (isDarkTheme) 0.56f else 0.60f)
+        val secondaryRadius = size.minDimension * (if (isDarkTheme) 0.44f else 0.48f)
+
+        drawCircle(
+            brush = Brush.radialGradient(
+                0.0f to primaryColor.copy(alpha = primaryAlpha),
+                primaryMidFraction to primaryColor.copy(alpha = primaryAlpha * primaryMidStop),
+                1.0f to Color.Transparent,
+                center = Offset(centerX - size.minDimension * 0.06f, centerY - size.minDimension * 0.04f),
+                radius = primaryRadius
+            ),
+            radius = primaryRadius,
+            center = Offset(centerX - size.minDimension * 0.06f, centerY - size.minDimension * 0.04f)
+        )
+
+        drawCircle(
+            brush = Brush.radialGradient(
+                0.0f to secondaryColor.copy(alpha = secondaryAlpha),
+                secondaryMidFraction to secondaryColor.copy(alpha = secondaryAlpha * secondaryMidStop),
+                1.0f to Color.Transparent,
+                center = Offset(centerX + size.minDimension * 0.10f, centerY + size.minDimension * 0.08f),
+                radius = secondaryRadius
+            ),
+            radius = secondaryRadius,
+            center = Offset(centerX + size.minDimension * 0.10f, centerY + size.minDimension * 0.08f)
+        )
     }
 }
 

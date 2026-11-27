@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2026 RevampedFMRadio Project
+ * Copyright (C) 2026 Halcyon Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +18,7 @@
 package com.android.fmradio.ui.artwork;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -24,24 +26,119 @@ import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RadialGradient;
-import android.graphics.Typeface;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.util.LruCache;
-import java.io.File;
 
-import java.util.Locale;
+import java.util.Objects;
 import java.util.Random;
 
 /**
- * Procedurally generates high-definition vector station album art seeded by
- * station frequency and styled using Material You tonal color roles.
+ * Generates frequency-seeded Material 3 artwork using the active device
+ * Material You color scheme and exposes extracted roles for UI ambient lighting.
  */
 public final class StationArtworkGenerator {
     private static final int ARTWORK_SIZE = 1024;
-    private static final LruCache<Integer, Bitmap> sArtworkCache = new LruCache<>(16);
+    private static final LruCache<String, StationArtworkResult> sArtworkCache = new LruCache<>(16);
+
+    /**
+     * Generated artwork bitmap paired with its dominant palette colors.
+     */
+    public static final class StationArtworkResult {
+        public final Bitmap bitmap;
+        public final int dominantColor;
+        public final int secondaryColor;
+        public final int accentColor;
+
+        public StationArtworkResult(Bitmap bitmap, int dominantColor, int secondaryColor, int accentColor) {
+            this.bitmap = bitmap;
+            this.dominantColor = dominantColor;
+            this.secondaryColor = secondaryColor;
+            this.accentColor = accentColor;
+        }
+    }
 
     private StationArtworkGenerator() {
+    }
+
+    /**
+     * Retrieve or generate Material 3 artwork using the live Compose ColorScheme roles.
+     */
+    public static synchronized StationArtworkResult getStationArtworkResult(
+            Context context,
+            int frequency,
+            String stationName,
+            int primary,
+            int secondary,
+            int tertiary,
+            int primaryContainer,
+            int secondaryContainer,
+            int tertiaryContainer,
+            int surfaceBase,
+            boolean isDarkTheme) {
+        int themeHash = Objects.hash(
+                primary, secondary, tertiary,
+                primaryContainer, secondaryContainer, tertiaryContainer,
+                surfaceBase, isDarkTheme
+        );
+        String cacheKey = frequency + "_" + themeHash;
+        StationArtworkResult cached = sArtworkCache.get(cacheKey);
+        if (cached != null && cached.bitmap != null && !cached.bitmap.isRecycled()) {
+            return cached;
+        }
+
+        Palette palette = buildM3Palette(
+                frequency,
+                primary, secondary, tertiary,
+                primaryContainer, secondaryContainer, tertiaryContainer,
+                surfaceBase, isDarkTheme
+        );
+        StationArtworkResult result = generateArtworkResult(frequency, palette);
+        sArtworkCache.put(cacheKey, result);
+        return result;
+    }
+
+    /**
+     * Retrieve or generate artwork using the system Material You dynamic palette tokens.
+     *
+     * @param context Application or UI context
+     * @param frequency Station frequency in tenths (e.g. 875 for 87.5 MHz)
+     * @param stationName Optional station name/callsign
+     * @return Cached or newly generated StationArtworkResult
+     */
+    public static synchronized StationArtworkResult getStationArtworkResult(
+            Context context, int frequency, String stationName) {
+        boolean isDarkTheme = (context.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+
+        int primary = getSystemColor(context,
+                isDarkTheme ? android.R.color.system_accent1_200 : android.R.color.system_accent1_600,
+                isDarkTheme ? 0xFFD0BCFF : 0xFF6750A4);
+        int secondary = getSystemColor(context,
+                isDarkTheme ? android.R.color.system_accent2_200 : android.R.color.system_accent2_600,
+                isDarkTheme ? 0xFFCCC2DC : 0xFF625B71);
+        int tertiary = getSystemColor(context,
+                isDarkTheme ? android.R.color.system_accent3_200 : android.R.color.system_accent3_600,
+                isDarkTheme ? 0xFFEFB8C8 : 0xFF7D5260);
+        int primaryContainer = getSystemColor(context,
+                isDarkTheme ? android.R.color.system_accent1_700 : android.R.color.system_accent1_100,
+                isDarkTheme ? 0xFF4F378B : 0xFFEADDFF);
+        int secondaryContainer = getSystemColor(context,
+                isDarkTheme ? android.R.color.system_accent2_700 : android.R.color.system_accent2_100,
+                isDarkTheme ? 0xFF4A4458 : 0xFFE8DEF8);
+        int tertiaryContainer = getSystemColor(context,
+                isDarkTheme ? android.R.color.system_accent3_700 : android.R.color.system_accent3_100,
+                isDarkTheme ? 0xFF633B48 : 0xFFFFD8E4);
+        int surfaceBase = getSystemColor(context,
+                isDarkTheme ? android.R.color.system_neutral1_900 : android.R.color.system_neutral1_50,
+                isDarkTheme ? 0xFF1C1B1F : 0xFFF7F2FA);
+
+        return getStationArtworkResult(
+                context, frequency, stationName,
+                primary, secondary, tertiary,
+                primaryContainer, secondaryContainer, tertiaryContainer,
+                surfaceBase, isDarkTheme
+        );
     }
 
     /**
@@ -53,231 +150,163 @@ public final class StationArtworkGenerator {
      * @return 1024x1024 high-definition Bitmap
      */
     public static synchronized Bitmap getStationArtwork(Context context, int frequency, String stationName) {
-        Bitmap cached = sArtworkCache.get(frequency);
-        if (cached != null && !cached.isRecycled()) {
-            return cached;
-        }
-
-        Bitmap bitmap = generateArtwork(context, frequency, stationName);
-        sArtworkCache.put(frequency, bitmap);
-        return bitmap;
+        return getStationArtworkResult(context, frequency, stationName).bitmap;
     }
 
-    private static Bitmap generateArtwork(Context context, int frequency, String stationName) {
+    private static int getSystemColor(Context context, int resId, int fallback) {
+        try {
+            return context.getColor(resId);
+        } catch (Throwable ignored) {
+            return fallback;
+        }
+    }
+
+    private static StationArtworkResult generateArtworkResult(int frequency, Palette palette) {
         Bitmap bitmap = Bitmap.createBitmap(ARTWORK_SIZE, ARTWORK_SIZE, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
 
-        long seed = (long) frequency * 31337L;
+        long seed = (long) frequency * 31337L + 17L;
         Random rng = new Random(seed);
 
-        Palette palette = extractMaterialPalette(context, rng);
-        int archetype = Math.abs(frequency / 5) % 5;
+        int archetype = Math.abs((frequency * 7) / 3) % 8;
 
         switch (archetype) {
             case 0:
-                renderAtmosphericHorizon(canvas, palette, frequency, rng);
-                break;
-            case 1:
-                renderGeometricWaveforms(canvas, palette, frequency, rng);
-                break;
-            case 2:
-                renderRetroRadioDial(canvas, palette, frequency, rng);
-                break;
-            case 3:
                 renderMaterial3Shapes(canvas, palette, frequency, rng);
                 break;
-            default:
+            case 1:
+                renderAtmosphericHorizon(canvas, palette, frequency, rng);
+                break;
+            case 2:
+                renderGeometricWaveforms(canvas, palette, frequency, rng);
+                break;
+            case 3:
+                renderRetroRadioDial(canvas, palette, frequency, rng);
+                break;
+            case 4:
                 renderModernistAbstract(canvas, palette, frequency, rng);
+                break;
+            case 5:
+                renderStarMedallion(canvas, palette, frequency, rng);
+                break;
+            case 6:
+                renderPrismBloom(canvas, palette, frequency, rng);
+                break;
+            default:
+                renderDuotoneRipples(canvas, palette, frequency, rng);
                 break;
         }
 
-        return bitmap;
-    }
-
-    private static Typeface sGoogleSansFlex;
-
-    private static Typeface getGoogleSansFlex(Context context) {
-        if (sGoogleSansFlex == null) {
-            try {
-                File fontFile = new File("/product/fonts/GoogleSansFlex-Regular.ttf");
-                if (!fontFile.exists()) {
-                    fontFile = new File("/system/fonts/GoogleSansFlex-Regular.ttf");
-                }
-                if (fontFile.exists()) {
-                    sGoogleSansFlex = new Typeface.Builder(fontFile).build();
-                } else {
-                    sGoogleSansFlex = Typeface.create("google-sans-flex", Typeface.NORMAL);
-                }
-            } catch (Throwable t) {
-                sGoogleSansFlex = Typeface.create("google-sans", Typeface.NORMAL);
-                if (sGoogleSansFlex == null || sGoogleSansFlex == Typeface.DEFAULT) {
-                    sGoogleSansFlex = Typeface.DEFAULT_BOLD;
-                }
-            }
-        }
-        return sGoogleSansFlex;
-    }
-
-    private static void renderCornerBadges(Canvas canvas, Context context, Palette palette, int freq, String stationName) {
-        Typeface font = getGoogleSansFlex(context);
-
-        Paint pillBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        pillBgPaint.setStyle(Paint.Style.FILL);
-        pillBgPaint.setColor(adjustAlpha(Color.BLACK, 0.45f));
-
-        Paint pillBorderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        pillBorderPaint.setStyle(Paint.Style.STROKE);
-        pillBorderPaint.setStrokeWidth(3f);
-        pillBorderPaint.setColor(adjustAlpha(Color.WHITE, 0.25f));
-
-        // 1. Top-Left Pill: "FM RADIO"
-        RectF tlPill = new RectF(56f, 56f, 310f, 136f);
-        canvas.drawRoundRect(tlPill, 40f, 40f, pillBgPaint);
-        canvas.drawRoundRect(tlPill, 40f, 40f, pillBorderPaint);
-
-        Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        dotPaint.setStyle(Paint.Style.FILL);
-        dotPaint.setColor(palette.accentPrimary);
-        canvas.drawCircle(96f, 96f, 10f, dotPaint);
-
-        Paint tlTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        tlTextPaint.setTypeface(font);
-        tlTextPaint.setFontVariationSettings("'ROND' 100, 'wght' 750, 'wdth' 100");
-        tlTextPaint.setColor(Color.WHITE);
-        tlTextPaint.setTextSize(32f);
-        canvas.drawText("FM RADIO", 124f, 107f, tlTextPaint);
-
-        // 2. Top-Right Pill: Frequency callout e.g. "104.5 MHz"
-        String freqText = String.format(Locale.US, "%.1f", freq / 10.0f);
-        String unitText = "MHz";
-
-        Paint trNumberPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        trNumberPaint.setTypeface(font);
-        trNumberPaint.setFontVariationSettings("'ROND' 100, 'wght' 800, 'wdth' 105");
-        trNumberPaint.setColor(Color.WHITE);
-        trNumberPaint.setTextSize(64f);
-
-        Paint trUnitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        trUnitPaint.setTypeface(font);
-        trUnitPaint.setFontVariationSettings("'ROND' 100, 'wght' 600, 'wdth' 100");
-        trUnitPaint.setColor(palette.accentSecondary);
-        trUnitPaint.setTextSize(32f);
-
-        float numWidth = trNumberPaint.measureText(freqText);
-        float unitWidth = trUnitPaint.measureText(unitText);
-        float trPillWidth = numWidth + unitWidth + 64f;
-        float trLeft = ARTWORK_SIZE - 56f - trPillWidth;
-
-        RectF trPill = new RectF(trLeft, 56f, ARTWORK_SIZE - 56f, 146f);
-        canvas.drawRoundRect(trPill, 45f, 45f, pillBgPaint);
-        canvas.drawRoundRect(trPill, 45f, 45f, pillBorderPaint);
-
-        canvas.drawText(freqText, trLeft + 28f, 118f, trNumberPaint);
-        canvas.drawText(unitText, trLeft + 36f + numWidth, 118f, trUnitPaint);
-
-        // 3. Bottom-Left Pill: Station Name / Program Service
-        String bottomLabel = (stationName != null && !stationName.trim().isEmpty() && !stationName.equals("FM Radio"))
-                ? stationName.trim()
-                : "BROADCAST STEREO";
-
-        Paint blTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        blTextPaint.setTypeface(font);
-        blTextPaint.setFontVariationSettings("'ROND' 100, 'wght' 600, 'wdth' 100");
-        blTextPaint.setColor(Color.WHITE);
-        blTextPaint.setTextSize(32f);
-
-        float blTextWidth = blTextPaint.measureText(bottomLabel);
-        float blPillWidth = Math.min(blTextWidth + 60f, ARTWORK_SIZE - 112f);
-        RectF blPill = new RectF(56f, ARTWORK_SIZE - 136f, 56f + blPillWidth, ARTWORK_SIZE - 56f);
-        canvas.drawRoundRect(blPill, 40f, 40f, pillBgPaint);
-        canvas.drawRoundRect(blPill, 40f, 40f, pillBorderPaint);
-
-        canvas.save();
-        canvas.clipRect(blPill.left + 24f, blPill.top, blPill.right - 24f, blPill.bottom);
-        canvas.drawText(bottomLabel, 56f + 28f, ARTWORK_SIZE - 85f, blTextPaint);
-        canvas.restore();
+        return new StationArtworkResult(
+                bitmap,
+                palette.accentPrimary,
+                palette.accentSecondary,
+                palette.accentTertiary
+        );
     }
 
     private static void renderAtmosphericHorizon(Canvas canvas, Palette palette, int freq, Random rng) {
         Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         Shader skyShader = new LinearGradient(
-                0, 0, 0, ARTWORK_SIZE,
+                0, 0, ARTWORK_SIZE * 0.25f, ARTWORK_SIZE,
                 new int[]{palette.accentPrimary, palette.accentSecondary, palette.surfaceBase},
-                new float[]{0.0f, 0.65f, 1.0f},
+                new float[]{0.0f, 0.58f, 1.0f},
                 Shader.TileMode.CLAMP
         );
         bgPaint.setShader(skyShader);
         canvas.drawRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE, bgPaint);
 
-        // Radiant Sun / Beacon Disc
         Paint sunPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        float sunCx = ARTWORK_SIZE * 0.5f;
-        float sunCy = ARTWORK_SIZE * 0.45f;
-        float sunRadius = ARTWORK_SIZE * 0.22f;
+        float sunCx = ARTWORK_SIZE * (0.44f + rng.nextFloat() * 0.12f);
+        float sunCy = ARTWORK_SIZE * 0.42f;
+        float sunRadius = ARTWORK_SIZE * 0.21f;
         sunPaint.setShader(new RadialGradient(
-                sunCx, sunCy, sunRadius * 1.5f,
-                new int[]{palette.glowColor, Color.TRANSPARENT},
-                new float[]{0.3f, 1.0f},
+                sunCx, sunCy, sunRadius * 1.8f,
+                new int[]{adjustAlpha(palette.accentTertiary, 0.85f), palette.glowColor, Color.TRANSPARENT},
+                new float[]{0.15f, 0.55f, 1.0f},
                 Shader.TileMode.CLAMP
         ));
-        canvas.drawCircle(sunCx, sunCy, sunRadius * 1.5f, sunPaint);
+        canvas.drawCircle(sunCx, sunCy, sunRadius * 1.8f, sunPaint);
 
-        sunPaint.setShader(null);
-        sunPaint.setColor(palette.accentTertiary);
+        sunPaint.setShader(new LinearGradient(
+                sunCx, sunCy - sunRadius, sunCx, sunCy + sunRadius,
+                palette.accentTertiary, palette.accentPrimary,
+                Shader.TileMode.CLAMP
+        ));
         canvas.drawCircle(sunCx, sunCy, sunRadius, sunPaint);
 
-        // Sinusoidal Radio Waves / Mountain Ridges
         Paint ridgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         ridgePaint.setStyle(Paint.Style.FILL);
 
-        int ridges = 3;
-        for (int r = 0; r < ridges; r++) {
-            float baseY = ARTWORK_SIZE * (0.60f + r * 0.12f);
+        int[] ridgeColors = new int[]{
+                adjustAlpha(palette.accentSecondary, 0.48f),
+                adjustAlpha(lerpColor(palette.accentPrimary, palette.surfaceBase, 0.55f), 0.86f),
+                palette.surfaceBase
+        };
+
+        for (int r = 0; r < ridgeColors.length; r++) {
+            float baseY = ARTWORK_SIZE * (0.58f + r * 0.13f);
             Path path = new Path();
             path.moveTo(0, ARTWORK_SIZE);
             path.lineTo(0, baseY);
 
-            float waveFreq = 0.005f + (r * 0.002f);
-            float amplitude = 35f - (r * 6f);
+            float waveFreq = 0.0045f + (r * 0.0022f);
+            float amplitude = 42f - (r * 7f);
             for (float x = 0; x <= ARTWORK_SIZE; x += 16) {
-                float y = baseY + (float) Math.sin((x + freq * 10f) * waveFreq) * amplitude;
+                float y = baseY + (float) Math.sin((x + freq * 12f + r * 90f) * waveFreq) * amplitude;
                 path.lineTo(x, y);
             }
             path.lineTo(ARTWORK_SIZE, ARTWORK_SIZE);
             path.close();
 
-            ridgePaint.setColor(adjustAlpha(palette.surfaceBase, 0.70f + (r * 0.12f)));
+            ridgePaint.setColor(ridgeColors[r]);
             canvas.drawPath(path, ridgePaint);
         }
     }
 
     private static void renderGeometricWaveforms(Canvas canvas, Palette palette, int freq, Random rng) {
-        // Deep background
-        canvas.drawColor(palette.surfaceBase);
+        Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bgPaint.setShader(new LinearGradient(
+                0, 0, ARTWORK_SIZE, ARTWORK_SIZE,
+                palette.surfaceBase, darkenColor(palette.accentPrimary, 0.28f),
+                Shader.TileMode.CLAMP
+        ));
+        canvas.drawRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE, bgPaint);
 
-        // Layered concentric waveforms spanning full canvas width
+        Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        glowPaint.setShader(new RadialGradient(
+                ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.55f,
+                new int[]{adjustAlpha(palette.accentSecondary, 0.35f), Color.TRANSPARENT},
+                new float[]{0.0f, 1.0f},
+                Shader.TileMode.CLAMP
+        ));
+        canvas.drawCircle(ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.55f, glowPaint);
+
         Paint wavePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         wavePaint.setStyle(Paint.Style.STROKE);
         wavePaint.setStrokeCap(Paint.Cap.ROUND);
 
-        int waveCount = 14;
+        int waveCount = 16;
         float centerY = ARTWORK_SIZE * 0.5f;
         for (int i = 0; i < waveCount; i++) {
-            float progress = (float) i / waveCount;
-            wavePaint.setStrokeWidth(8f + progress * 16f);
-            wavePaint.setColor(lerpColor(palette.accentPrimary, palette.accentSecondary, progress));
-            wavePaint.setAlpha((int) (140 + progress * 115));
+            float progress = (float) i / (waveCount - 1);
+            wavePaint.setStrokeWidth(8f + (float) Math.sin(progress * Math.PI) * 18f);
+            int strokeColor = progress < 0.5f
+                    ? lerpColor(palette.accentPrimary, palette.accentSecondary, progress * 2f)
+                    : lerpColor(palette.accentSecondary, palette.accentTertiary, (progress - 0.5f) * 2f);
+            wavePaint.setColor(strokeColor);
+            wavePaint.setAlpha((int) (135 + Math.sin(progress * Math.PI) * 120));
 
             Path wave = new Path();
-            float startX = -20f;
-            float endX = ARTWORK_SIZE + 20f;
+            float startX = -24f;
+            float endX = ARTWORK_SIZE + 24f;
             wave.moveTo(startX, centerY);
 
-            float amp = (float) Math.sin(progress * Math.PI) * (ARTWORK_SIZE * 0.24f);
+            float amp = (float) Math.sin(progress * Math.PI) * (ARTWORK_SIZE * 0.28f);
             float freqFactor = 2.0f + (freq % 4);
             for (float x = startX; x <= endX; x += 16) {
                 float normX = (x - startX) / (endX - startX);
-                float y = centerY + (float) Math.sin(normX * Math.PI * freqFactor + (i * 0.4f)) * amp;
+                float y = centerY + (float) Math.sin(normX * Math.PI * freqFactor + (i * 0.38f)) * amp;
                 wave.lineTo(x, y);
             }
             canvas.drawPath(wave, wavePaint);
@@ -287,70 +316,96 @@ public final class StationArtworkGenerator {
     private static void renderRetroRadioDial(Canvas canvas, Palette palette, int freq, Random rng) {
         Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         bgPaint.setShader(new RadialGradient(
-                ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.7f,
-                palette.surfaceBase, darkenColor(palette.surfaceBase, 0.4f),
+                ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.72f,
+                lerpColor(palette.surfaceBase, palette.accentSecondary, 0.22f),
+                darkenColor(palette.surfaceBase, 0.45f),
                 Shader.TileMode.CLAMP
         ));
         canvas.drawRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE, bgPaint);
 
-        // Concentric vinyl / frequency rings
-        Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        ringPaint.setStyle(Paint.Style.STROKE);
         float cx = ARTWORK_SIZE * 0.5f;
         float cy = ARTWORK_SIZE * 0.5f;
 
-        for (float r = 120; r <= 440; r += 28) {
-            ringPaint.setStrokeWidth(3f);
-            ringPaint.setColor(adjustAlpha(palette.accentSecondary, 0.20f));
+        Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        glowPaint.setShader(new RadialGradient(
+                cx, cy, 440f,
+                new int[]{adjustAlpha(palette.accentPrimary, 0.36f), Color.TRANSPARENT},
+                new float[]{0.2f, 1.0f},
+                Shader.TileMode.CLAMP
+        ));
+        canvas.drawCircle(cx, cy, 440f, glowPaint);
+
+        Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        ringPaint.setStyle(Paint.Style.STROKE);
+        ringPaint.setStrokeCap(Paint.Cap.ROUND);
+
+        for (float r = 136; r <= 440; r += 34) {
+            ringPaint.setStrokeWidth(4f);
+            ringPaint.setColor(adjustAlpha(palette.accentSecondary, 0.28f));
             canvas.drawCircle(cx, cy, r, ringPaint);
         }
 
-        // Prominent tuning arc
-        ringPaint.setStrokeWidth(18f);
+        ringPaint.setStrokeWidth(26f);
         ringPaint.setColor(palette.accentPrimary);
         RectF arcBounds = new RectF(cx - 320, cy - 320, cx + 320, cy + 320);
         float startAngle = 135f;
-        float sweepAngle = 270f * ((freq % 205) / 205.0f);
+        float sweepAngle = 60f + 210f * ((freq % 205) / 205.0f);
         canvas.drawArc(arcBounds, startAngle, sweepAngle, false, ringPaint);
 
-        // Center hub
+        ringPaint.setStrokeWidth(14f);
+        ringPaint.setColor(palette.accentTertiary);
+        RectF innerArcBounds = new RectF(cx - 220, cy - 220, cx + 220, cy + 220);
+        canvas.drawArc(innerArcBounds, -45f, 180f, false, ringPaint);
+
         Paint hubPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         hubPaint.setStyle(Paint.Style.FILL);
+        hubPaint.setColor(palette.accentSecondary);
+        Path hub = createHarmonicShapePath(cx, cy, 118f, 0.16f, 8);
+        canvas.drawPath(hub, hubPaint);
+
         hubPaint.setColor(palette.accentTertiary);
-        canvas.drawCircle(cx, cy, 90f, hubPaint);
+        canvas.drawCircle(cx, cy, 48f, hubPaint);
     }
 
     private static void renderModernistAbstract(Canvas canvas, Palette palette, int freq, Random rng) {
-        canvas.drawColor(palette.surfaceBase);
+        Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bgPaint.setShader(new LinearGradient(
+                0, 0, ARTWORK_SIZE, ARTWORK_SIZE,
+                palette.surfaceBase, lerpColor(palette.surfaceBase, palette.accentSecondary, 0.26f),
+                Shader.TileMode.CLAMP
+        ));
+        canvas.drawRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE, bgPaint);
 
         Paint shapePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         shapePaint.setStyle(Paint.Style.FILL);
 
-        // M3 Puffy Diamond base
-        shapePaint.setColor(adjustAlpha(palette.accentPrimary, 0.85f));
-        Path diamond = createPuffyDiamondPath(ARTWORK_SIZE * 0.42f, ARTWORK_SIZE * 0.46f, 320f);
+        shapePaint.setShader(new LinearGradient(
+                120f, 140f, 680f, 760f,
+                palette.accentPrimary, palette.accentSecondary,
+                Shader.TileMode.CLAMP
+        ));
+        Path diamond = createPuffyDiamondPath(ARTWORK_SIZE * 0.38f, ARTWORK_SIZE * 0.45f, 330f);
         canvas.drawPath(diamond, shapePaint);
 
-        // Overlapping Stadium Arch
-        shapePaint.setColor(adjustAlpha(palette.accentSecondary, 0.75f));
-        Path arch = createArchPath(ARTWORK_SIZE * 0.62f, ARTWORK_SIZE * 0.58f, 320f, 440f);
+        shapePaint.setShader(null);
+        shapePaint.setColor(adjustAlpha(palette.accentSecondary, 0.85f));
+        Path arch = createArchPath(ARTWORK_SIZE * 0.63f, ARTWORK_SIZE * 0.60f, 340f, 480f);
         canvas.drawPath(arch, shapePaint);
 
-        // Accent M3 Flower node
         shapePaint.setColor(palette.accentTertiary);
-        Path flower = createHarmonicShapePath(ARTWORK_SIZE * 0.72f, ARTWORK_SIZE * 0.28f, 90f, 0.22f, 6);
+        Path flower = createHarmonicShapePath(ARTWORK_SIZE * 0.72f, ARTWORK_SIZE * 0.27f, 118f, 0.24f, 6);
         canvas.drawPath(flower, shapePaint);
+
+        shapePaint.setColor(adjustAlpha(palette.surfaceBase, 0.85f));
+        canvas.drawCircle(ARTWORK_SIZE * 0.72f, ARTWORK_SIZE * 0.27f, 34f, shapePaint);
     }
 
-    /**
-     * Procedural Material 3 Expressive Shapes composition (Cookie, Clover, Burst, Gem, Flower).
-     */
     private static void renderMaterial3Shapes(Canvas canvas, Palette palette, int freq, Random rng) {
-        // Deep background with subtle tonal vignette
         Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         bgPaint.setShader(new RadialGradient(
                 ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.5f, ARTWORK_SIZE * 0.75f,
-                darkenColor(palette.surfaceBase, 0.1f), darkenColor(palette.surfaceBase, 0.55f),
+                lerpColor(palette.surfaceBase, palette.accentPrimary, 0.22f),
+                darkenColor(palette.surfaceBase, 0.55f),
                 Shader.TileMode.CLAMP
         ));
         canvas.drawRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE, bgPaint);
@@ -362,65 +417,178 @@ public final class StationArtworkGenerator {
         float cy = ARTWORK_SIZE * 0.5f;
         int shapeStyle = Math.abs(freq % 6);
 
-        // Outer ambient glow disk
         Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         glowPaint.setShader(new RadialGradient(
-                cx, cy, 420f,
-                new int[]{palette.glowColor, Color.TRANSPARENT},
+                cx, cy, 450f,
+                new int[]{adjustAlpha(palette.accentPrimary, 0.45f), Color.TRANSPARENT},
                 new float[]{0.2f, 1.0f},
                 Shader.TileMode.CLAMP
         ));
-        canvas.drawCircle(cx, cy, 420f, glowPaint);
+        canvas.drawCircle(cx, cy, 450f, glowPaint);
 
-        // 1. Secondary Backing M3 Shape (Soft Layer)
-        shapePaint.setColor(adjustAlpha(palette.accentSecondary, 0.40f));
-        Path backingShape;
-        if (shapeStyle % 2 == 0) {
-            backingShape = createHarmonicShapePath(cx, cy, 330f, 0.16f, 8); // 8-sided cookie
-        } else {
-            backingShape = createBurstPath(cx, cy, 360f, 260f, 12); // 12-point burst
-        }
+        shapePaint.setColor(adjustAlpha(palette.accentSecondary, 0.55f));
+        Path backingShape = (shapeStyle % 2 == 0)
+                ? createHarmonicShapePath(cx, cy, 345f, 0.16f, 8)
+                : createBurstPath(cx, cy, 375f, 270f, 12);
         canvas.drawPath(backingShape, shapePaint);
 
-        // 2. Primary Hero M3 Expressive Shape
-        shapePaint.setColor(palette.accentPrimary);
+        shapePaint.setShader(new LinearGradient(
+                cx - 280f, cy - 280f, cx + 280f, cy + 280f,
+                palette.accentPrimary, palette.accentSecondary,
+                Shader.TileMode.CLAMP
+        ));
         Path heroShape;
         switch (shapeStyle) {
-            case 0: // 4-leaf clover
-                heroShape = createHarmonicShapePath(cx, cy, 270f, 0.32f, 4);
+            case 0:
+                heroShape = createHarmonicShapePath(cx, cy, 275f, 0.32f, 4);
                 break;
-            case 1: // 6-sided cookie
-                heroShape = createHarmonicShapePath(cx, cy, 280f, 0.18f, 6);
+            case 1:
+                heroShape = createHarmonicShapePath(cx, cy, 285f, 0.18f, 6);
                 break;
-            case 2: // Puffy Diamond
-                heroShape = createPuffyDiamondPath(cx, cy, 280f);
+            case 2:
+                heroShape = createPuffyDiamondPath(cx, cy, 285f);
                 break;
-            case 3: // 8-petal Flower
-                heroShape = createHarmonicShapePath(cx, cy, 270f, 0.28f, 8);
+            case 3:
+                heroShape = createHarmonicShapePath(cx, cy, 275f, 0.28f, 8);
                 break;
-            case 4: // Faceted Gem
-                heroShape = createGemPath(cx, cy, 270f);
+            case 4:
+                heroShape = createGemPath(cx, cy, 275f);
                 break;
-            default: // Expressive Heart
-                heroShape = createHeartPath(cx, cy - 30f, 380f);
+            default:
+                heroShape = createHeartPath(cx, cy - 30f, 385f);
                 break;
         }
         canvas.drawPath(heroShape, shapePaint);
 
-        // 3. Central Core M3 Accent
+        shapePaint.setShader(null);
         shapePaint.setColor(palette.accentTertiary);
-        Path coreShape;
-        if (shapeStyle == 5) {
-            coreShape = createHarmonicShapePath(cx, cy - 30f, 110f, 0.15f, 6);
-        } else {
-            coreShape = createHarmonicShapePath(cx, cy, 110f, 0.25f, 4);
-        }
+        float coreCy = (shapeStyle == 5) ? cy - 30f : cy;
+        Path coreShape = createHarmonicShapePath(cx, coreCy, 114f, shapeStyle == 5 ? 0.16f : 0.25f, shapeStyle == 5 ? 6 : 4);
         canvas.drawPath(coreShape, shapePaint);
 
-        // Inner micro dot
         shapePaint.setColor(Color.WHITE);
-        shapePaint.setAlpha(200);
-        canvas.drawCircle(cx, (shapeStyle == 5) ? cy - 30f : cy, 22f, shapePaint);
+        shapePaint.setAlpha(215);
+        canvas.drawCircle(cx, coreCy, 24f, shapePaint);
+    }
+
+    private static void renderStarMedallion(Canvas canvas, Palette palette, int freq, Random rng) {
+        Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bgPaint.setShader(new LinearGradient(
+                0, 0, 0, ARTWORK_SIZE,
+                lerpColor(palette.surfaceBase, palette.accentSecondary, 0.24f),
+                palette.surfaceBase,
+                Shader.TileMode.CLAMP
+        ));
+        canvas.drawRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE, bgPaint);
+
+        float cx = ARTWORK_SIZE * 0.5f;
+        float cy = ARTWORK_SIZE * 0.5f;
+
+        Paint shapePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        shapePaint.setStyle(Paint.Style.FILL);
+        shapePaint.setShader(new LinearGradient(
+                cx - 360f, cy - 360f, cx + 360f, cy + 360f,
+                palette.accentPrimary, palette.accentTertiary,
+                Shader.TileMode.CLAMP
+        ));
+        Path outerBurst = createBurstPath(cx, cy, 380f, 295f, 10);
+        canvas.drawPath(outerBurst, shapePaint);
+
+        shapePaint.setShader(null);
+        shapePaint.setColor(palette.accentSecondary);
+        Path midCookie = createHarmonicShapePath(cx, cy, 215f, 0.14f, 5);
+        canvas.drawPath(midCookie, shapePaint);
+
+        shapePaint.setColor(palette.surfaceBase);
+        canvas.drawCircle(cx, cy, 92f, shapePaint);
+
+        shapePaint.setColor(palette.accentTertiary);
+        canvas.drawCircle(cx, cy, 42f, shapePaint);
+
+        int orbitDots = 6;
+        for (int i = 0; i < orbitDots; i++) {
+            double angle = (2.0 * Math.PI * i) / orbitDots + (freq % 10) * 0.2;
+            float dx = cx + 415f * (float) Math.cos(angle);
+            float dy = cy + 415f * (float) Math.sin(angle);
+            shapePaint.setColor(adjustAlpha(i % 2 == 0 ? palette.accentTertiary : palette.accentSecondary, 0.78f));
+            canvas.drawCircle(dx, dy, 18f, shapePaint);
+        }
+    }
+
+    private static void renderPrismBloom(Canvas canvas, Palette palette, int freq, Random rng) {
+        Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bgPaint.setShader(new RadialGradient(
+                ARTWORK_SIZE * 0.3f, ARTWORK_SIZE * 0.25f, ARTWORK_SIZE * 0.9f,
+                lerpColor(palette.surfaceBase, palette.accentPrimary, 0.32f),
+                darkenColor(palette.surfaceBase, 0.5f),
+                Shader.TileMode.CLAMP
+        ));
+        canvas.drawRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE, bgPaint);
+
+        float cx = ARTWORK_SIZE * 0.5f;
+        float cy = ARTWORK_SIZE * 0.5f;
+        Paint shardPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        shardPaint.setStyle(Paint.Style.FILL);
+
+        int petals = 6;
+        for (int i = 0; i < petals; i++) {
+            canvas.save();
+            canvas.rotate((360f / petals) * i + (freq % 30), cx, cy);
+            shardPaint.setColor(adjustAlpha(
+                    i % 2 == 0 ? palette.accentPrimary : palette.accentSecondary,
+                    0.58f
+            ));
+            RectF oval = new RectF(cx - 120f, cy - 390f, cx + 120f, cy + 40f);
+            canvas.drawRoundRect(oval, 120f, 120f, shardPaint);
+            canvas.restore();
+        }
+
+        shardPaint.setColor(palette.accentTertiary);
+        Path centerGem = createGemPath(cx, cy, 130f);
+        canvas.drawPath(centerGem, shardPaint);
+
+        shardPaint.setColor(palette.surfaceBase);
+        canvas.drawCircle(cx, cy, 38f, shardPaint);
+    }
+
+    private static void renderDuotoneRipples(Canvas canvas, Palette palette, int freq, Random rng) {
+        Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bgPaint.setColor(palette.surfaceBase);
+        canvas.drawRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE, bgPaint);
+
+        Path diagonalSplit = new Path();
+        diagonalSplit.moveTo(0, ARTWORK_SIZE * 0.62f);
+        diagonalSplit.lineTo(ARTWORK_SIZE, ARTWORK_SIZE * 0.28f);
+        diagonalSplit.lineTo(ARTWORK_SIZE, ARTWORK_SIZE);
+        diagonalSplit.lineTo(0, ARTWORK_SIZE);
+        diagonalSplit.close();
+
+        Paint splitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        splitPaint.setShader(new LinearGradient(
+                0, ARTWORK_SIZE * 0.28f, ARTWORK_SIZE, ARTWORK_SIZE,
+                adjustAlpha(palette.accentPrimary, 0.85f),
+                adjustAlpha(palette.accentSecondary, 0.72f),
+                Shader.TileMode.CLAMP
+        ));
+        canvas.drawPath(diagonalSplit, splitPaint);
+
+        float cx = ARTWORK_SIZE * 0.5f;
+        float cy = ARTWORK_SIZE * 0.48f;
+        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokePaint.setStyle(Paint.Style.STROKE);
+
+        for (int i = 0; i < 4; i++) {
+            float r = 175f + i * 74f;
+            strokePaint.setStrokeWidth(16f - i * 2f);
+            strokePaint.setColor(adjustAlpha(i % 2 == 0 ? palette.accentTertiary : palette.accentSecondary, 0.82f - i * 0.14f));
+            Path ring = createHarmonicShapePath(cx, cy, r, 0.10f, 6);
+            canvas.drawPath(ring, strokePaint);
+        }
+
+        Paint corePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        corePaint.setStyle(Paint.Style.FILL);
+        corePaint.setColor(palette.accentTertiary);
+        canvas.drawPath(createPuffyDiamondPath(cx, cy, 118f), corePaint);
     }
 
     private static Path createHarmonicShapePath(float cx, float cy, float baseR, float modAmp, int lobes) {
@@ -511,40 +679,67 @@ public final class StationArtworkGenerator {
         return path;
     }
 
-    private static Palette extractMaterialPalette(Context context, Random rng) {
-        int primary;
-        int secondary;
-        int tertiary;
-        int surface;
+    private static Palette buildM3Palette(
+            int frequency,
+            int primary,
+            int secondary,
+            int tertiary,
+            int primaryContainer,
+            int secondaryContainer,
+            int tertiaryContainer,
+            int surfaceBase,
+            boolean isDarkTheme) {
+        // Select deterministically among curated permutations of the current device Material 3 roles
+        int variant = Math.abs(frequency * 7) % 6;
+        int accent1;
+        int accent2;
+        int accent3;
+        int containerRole;
 
-        try {
-            // Android 12+ System Palette Tokens
-            primary = context.getColor(android.R.color.system_accent1_400);
-            secondary = context.getColor(android.R.color.system_accent2_300);
-            tertiary = context.getColor(android.R.color.system_accent3_400);
-            surface = context.getColor(android.R.color.system_neutral1_900);
-        } catch (Throwable ignored) {
-            // Curated fallback palette matching M3 specs
-            primary = Color.rgb(103, 80, 164);
-            secondary = Color.rgb(98, 91, 113);
-            tertiary = Color.rgb(125, 82, 96);
-            surface = Color.rgb(28, 27, 31);
+        switch (variant) {
+            case 0:
+                accent1 = primary;
+                accent2 = tertiary;
+                accent3 = secondary;
+                containerRole = primaryContainer;
+                break;
+            case 1:
+                accent1 = tertiary;
+                accent2 = primary;
+                accent3 = secondaryContainer;
+                containerRole = tertiaryContainer;
+                break;
+            case 2:
+                accent1 = primary;
+                accent2 = secondary;
+                accent3 = tertiaryContainer;
+                containerRole = secondaryContainer;
+                break;
+            case 3:
+                accent1 = secondary;
+                accent2 = primary;
+                accent3 = tertiary;
+                containerRole = primaryContainer;
+                break;
+            case 4:
+                accent1 = tertiary;
+                accent2 = secondary;
+                accent3 = primary;
+                containerRole = tertiaryContainer;
+                break;
+            default:
+                accent1 = primary;
+                accent2 = secondaryContainer;
+                accent3 = tertiary;
+                containerRole = primaryContainer;
+                break;
         }
 
-        // Tonal variation based on RNG
-        float hueShift = rng.nextFloat() * 40f - 20f;
-        primary = shiftHue(primary, hueShift);
-        secondary = shiftHue(secondary, -hueShift);
-
-        int glow = adjustAlpha(primary, 0.45f);
-        return new Palette(primary, secondary, tertiary, surface, glow);
-    }
-
-    private static int shiftHue(int color, float degrees) {
-        float[] hsv = new float[3];
-        Color.colorToHSV(color, hsv);
-        hsv[0] = (hsv[0] + degrees + 360f) % 360f;
-        return Color.HSVToColor(Color.alpha(color), hsv);
+        int artworkSurface = isDarkTheme
+                ? lerpColor(surfaceBase, containerRole, 0.45f)
+                : lerpColor(containerRole, surfaceBase, 0.22f);
+        int glow = adjustAlpha(accent1, isDarkTheme ? 0.45f : 0.55f);
+        return new Palette(accent1, accent2, accent3, artworkSurface, glow);
     }
 
     private static int darkenColor(int color, float factor) {
