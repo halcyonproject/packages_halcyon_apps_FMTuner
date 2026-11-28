@@ -1,132 +1,150 @@
 # Halcyon's FM Tuner a.k.a. Radio
 
-Halcyon's FM Tuner a.k.a. Radio is an expressive FM radio application for Android (AOSP / LineageOS / Halcyon), forked from [iusmac's RevampedFMRadio](https://github.com/iusmac/RevampedFMRadio) and based on the upstream LineageOS / AOSP FMRadio codebase.
+Halcyon's FM Tuner a.k.a. Radio (`com.hlcyn.tuner`) is an FM radio application for Android (AOSP, LineageOS, and Halcyon), forked from [iusmac's RevampedFMRadio](https://github.com/iusmac/RevampedFMRadio) and built on the LineageOS / AOSP FMRadio stack.
 
-Built with Jetpack Compose, featuring dynamic typography, generative album art, direction-aware animations, and expanded device control.
-
----
+It is a privileged system app built with Jetpack Compose for devices that have built-in FM radio hardware, kernel FM drivers, and FM audio routing.
 
 ## Features
 
-### Expressive font physics on Layouts
-- Dynamic title typography shifts across states (paused, seeking, playing, and recording) with subtle width breathing while tuning.
-- Tactile spring physics give titles and controls a responsive, physical feel during interactions.
-- Smooth typeface pre-caching prevents layout flicker and frame drops during live tuning.
+### Design and theming
+- Adapts to your device's wallpaper colors in Light and Dark themes using Material 3.
+- Generates distinct cover art and a soft backdrop glow for each station from your active theme colors.
+- Uses variable typography backed by Google Sans Flex when present on the ROM, with a Reduce motion setting to disable spring and text animations.
+- Includes translations across 87 locales and supports Android predictive back navigation.
 
-### Directional transitions on main screen / FM player
-- Direction-aware slide animations follow tuning gestures (slides left when tuning down, right when tuning up).
-- Metadata and RDS radio text updates crossfade in place without shifting surrounding controls.
-- Subtitle area reserves a fixed layout slot so station titles stay anchored when RDS metadata appears or disappears.
+### Tuning and playback
+- Tune with a segmented frequency slider, 0.1 MHz step buttons, or automatic Previous and Next channel scanning.
+- Switch output between headphones and the phone speaker with one tap. Wired headphones still act as the antenna on devices that do not have an internal FM antenna.
+- Displays RDS station names and live radio text when broadcast by the station.
 
-### Frequency-seeded album art generator
-- Distinctive vector album art generated deterministically for each frequency.
-- Dynamic combinations of Material 3 shapes (squircles, stars, scallops) and vector audio waves.
-- Animated radar sweep indicator during channel scanning with lock-in when tuned.
+### Broadcast recording and library
+- Record live radio in AAC (`.m4a`) or Opus (`.ogg`) at 128, 192, 256, or 320 kbps, saved to a configurable folder.
+- Browse saved clips grouped by date in the built-in Recordings screen with an in-app audio player, skip controls, scrubbing bar, and rename or share actions.
+- Live FM playback pauses automatically while you listen to a saved recording.
 
-### Better recording manager and recorded player
-- Dedicated full-screen recording manager with creation dates, file sizes, and playback durations.
-- Built-in audio player with a floating playback bar and scrubbing seekbar.
-- Automatic broadcast interlock pauses live FM playback whenever a recorded file is played.
-
-### Better station favourites management
-- In-place station renaming and manual frequency entry with validation.
-- Interactive reordering (Up / Down) with animated list transitions.
-- Deletion confirmations to prevent accidental removals.
-
-### Better preferences with system-like UI
-- Clean preferences interface styled to match native system settings.
-- Available preferences:
-  - **Autoplay on launch**: Toggle whether radio playback starts immediately when opened.
-  - **Recording format & bitrate**: Record in AAC (.m4a) or AMR (.3gpp) with bitrates up to 320 kbps.
-  - **Custom storage location**: Choose where saved recordings are stored.
-  - **Reduce motion**: Master toggle to disable font breathing, spring bounces, and radar animations.
-
-### Platform Modernizations
-- **Target SDK 35**: Modern Android 15+ platform behaviors.
-- **Predictive Back Navigation**: Smooth back gesture integration.
-- **LineageOS Vector Assets**: Replaced legacy raster assets with clean vector icons.
-- **Wireless Playback**: Built-in antenna fallback when headphones are unplugged.
-
----
+### Favorites and settings
+- Save favorite stations, assign custom names, enter frequencies manually, reorder the list, and confirm deletions before removing entries.
+- Configure Auto-play on startup, Reduce motion, recording format, bitrate, and storage folder from a system-styled Settings screen.
 
 ## Device Integration Guide
 
 > [!NOTE]
-> **Halcyon AOSP Source**: Halcyon's FM Tuner a.k.a. Radio (`FMTuner`) is included by default on Halcyon AOSP. If you are already building Halcyon AOSP from source, skip the manifest configuration step.
+> Halcyon's FM Tuner a.k.a. Radio (`FMTuner`) is included by default in Halcyon AOSP builds. If you already build Halcyon AOSP from source, skip the manifest step below.
 
-### 1. Manifest Configuration
-To include the repository in external ROM manifests (e.g. `.repo/local_manifests/fmtuner.xml`):
+Because `FMTuner` declares `overrides: ["FMRadio", "RevampedFMRadio"]` and `required: ["privapp_whitelist_com.hlcyn.tuner.xml", "RevampedFmRecordingsProvider"]` in `Android.bp`, you do not need to remove stock `FMRadio` repositories from your manifest. Your device tree still needs working kernel FM drivers and FM audio routing in `audio_policy_configuration.xml`.
+
+### 1. Manifest configuration
+Add the repository to a local manifest (for example `.repo/local_manifests/fmtuner.xml`), matching `revision` to your ROM branch:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <manifest>
   <project name="halcyonproject/packages_halcyon_apps_FMTuner"
-           path="packages/apps/FMTuner"
+           path="packages/halcyon/apps/FMTuner"
            remote="github"
            revision="17.0" />
 </manifest>
 ```
 
-*(Because `FMTuner` explicitly overrides `FMRadio` and `RevampedFMRadio` in its build configuration, removing existing `FMRadio` projects from your manifest is not required).*
-
-### 2. Base Device Configuration
-Add the package to your device makefile (`device.mk`):
+### 2. Base device configuration
+Include `FMTuner` in `device.mk`:
 
 ```make
 PRODUCT_PACKAGES += \
     FMTuner
 ```
 
----
+At runtime, `FmNative` loads the first available JNI library in order: `libmtkfmjni`, `libqcomfmjni`, `libslsifmjni`, then `libfmjni`. This repository builds `libmtkfmjni`, `libqcomfmjni`, and `libslsifmjni` from `jni/Android.bp`. When none of those three modules are included in `PRODUCT_PACKAGES`, `FmNative` falls back to the platform `libfmjni` library.
 
 ### Qualcomm (QCOM) SoCs
 
-1. **JNI Library**:
-   Add the Qualcomm FM JNI library to `device.mk`:
+1. Add the Qualcomm JNI library to `device.mk`:
    ```make
    PRODUCT_PACKAGES += \
        libqcomfmjni
    ```
+   If your target does not load FM firmware from the JNI (matching LineageOS `TARGET_NO_FM_FIRMWARE`), set the Soong config variable in `BoardConfig.mk`:
+   ```make
+   $(call soong_config_set,libfmjni,no_fm_firmware,true)
+   ```
 
-2. **Vendor Properties** (`vendor.prop`):
-   Set the Bluetooth SoC property so the FM stack can detect the hardware interface:
+2. Set the Bluetooth transport property in `vendor.prop` (replace `cherokee` with your SoC transport, such as `hastings` or `pronto`):
    ```properties
    vendor.qcom.bluetooth.soc=cherokee
    ```
-   *(Replace `cherokee` with your SoC's Bluetooth interface, such as `hastings` or `pronto`).*
-
-   For legacy audio routing pipelines (e.g. older audio HAL mixer paths), set:
+   For legacy audio HAL mixer routing, also set:
    ```properties
    ro.vendor.fm.use_audio_session=true
    ```
 
-3. **SELinux Policy** (`sepolicy/vendor/system_app.te`):
-   Allow `system_app` to read the vendor Bluetooth property and access the FM HAL service (`fm_helium`):
+3. Allow `system_app` to read the Bluetooth property and talk to the FM HAL in `sepolicy/vendor/system_app.te`:
    ```
    get_prop(system_app, vendor_bluetooth_prop)
    hal_client_domain(system_app, vendor_hal_fm)
    ```
 
----
-
 ### MediaTek (MTK) SoCs
 
-1. **JNI Library**:
-   Add the MediaTek FM JNI library to `device.mk`:
+1. Add the MediaTek JNI library to `device.mk`:
    ```make
    PRODUCT_PACKAGES += \
        libmtkfmjni
    ```
 
-2. **Prebuilt Library Cleanup & Configuration**:
-   Remove any vendor prebuilt `libfmcust` or `libfmjni.so` libraries from your device tree:
-   - `libmtkfmjni` already includes hardcoded configurations for common MediaTek SoCs previously provided by `libfmcust`.
-   - For newer SoCs, configure parameters using system properties (see LineageOS change [Ia0e1f26820f4578d331abcc45e4c0a6db7d0a0da](https://review.lineageos.org/q/Ia0e1f26820f4578d331abcc45e4c0a6db7d0a0da) for reference).
+2. Remove any legacy prebuilt `libfmcust` or `libfmjni.so` from your device tree. `libmtkfmjni` reads `ro.fm.chip` and `persist.vendor.connsys.fm_chipid` (including combined chip IDs such as `mt6631_6635`), along with standard LineageOS `ro.fm.*` calibration properties.
 
----
+### Samsung Exynos (SLSI) SoCs
+
+1. Add the SLSI JNI library to `device.mk` (built from `jni/slsi/`):
+   ```make
+   PRODUCT_PACKAGES += \
+       libslsifmjni
+   ```
+
+2. Ensure your kernel V4L2 FM driver exposes `/dev/radio0` with `system_app` SELinux access and FM audio routing configured in `audio_policy_configuration.xml`.
+
+The upstream SLSI V4L2 controller supports manual frequency tuning, Previous and Next channel seek, and RDS (`PS` and `RT`). Full-band `autoScan` is not implemented in the upstream SLSI controller, so use Previous/Next seek or manual frequency entry to find stations. Verify on device with:
+
+```sh
+adb logcat -s FMLIB_SLSI_JNI
+```
+
+### General or LineageOS `libfmjni`
+
+Use this path if your device already uses upstream LineageOS `packages/apps/FMRadio/jni/fmr`, `vendor/qcom/opensource/libfmjni`, `hardware/samsung_slsi/fm`, Broadcom FM, or a device-specific prebuilt `libfmjni.so`.
+
+1. Omit `libmtkfmjni`, `libqcomfmjni`, and `libslsifmjni`, and include `libfmjni` alongside `FMTuner` in `device.mk`:
+   ```make
+   PRODUCT_PACKAGES += \
+       FMTuner \
+       libfmjni
+   ```
+
+2. When building upstream LineageOS `libfmjni`, select the vendor backend in `BoardConfig.mk` if needed:
+   ```make
+   # For Qualcomm targets using LineageOS vendor/qcom/opensource/libfmjni
+   $(call soong_config_set,libfmjni,vendor,qcom)
+
+   # For Samsung Exynos targets using LineageOS hardware/samsung_slsi/fm
+   $(call soong_config_set,libfmjni,vendor,slsi)
+
+   # Leave libfmjni vendor unset for property-based MediaTek libfmjni
+   ```
+
+3. Because `FMTuner` runs as a privileged system app (`privileged: true`), any prebuilt `libfmjni.so` must be installed in `/system/lib64` or `/system_ext/lib64` (or listed in `public.libraries.txt`), not only in `/vendor/lib64`.
+
+`FmNative` keeps the upstream MediaTek `libfmjni` method declarations and guards optional low-power mode calls (`setLowPowerMode` and `setNormalPowerMode`), so both 16-method and 26-method `libfmjni` libraries load without `NoSuchMethodError` or `UnsatisfiedLinkError`. Verify which JNI library loaded with:
+
+```sh
+adb logcat | grep -E "FMLIB|FmNative"
+```
 
 ## Credits
 
-- [iusmac (Max)](https://github.com/iusmac) — Original RevampedFMRadio architecture and QCOM/MTK JNI ports.
-- [The LineageOS Project](https://github.com/LineageOS) & AOSP — Base FMRadio implementation and vector assets.
-- [The Halcyon Project](https://github.com/halcyonproject) — Expressive Compose UI, variable font physics, and platform modernizations.
+- [iusmac (Max)](https://github.com/iusmac): Original RevampedFMRadio architecture and QCOM/MTK JNI ports.
+- [The LineageOS Project](https://github.com/LineageOS) and AOSP: Base FMRadio implementation, Soong `libfmjni` options (Michael Bestas), MediaTek `FmNative` JNI bindings (Ash Blake), property-based MTK config (bengris32), and Samsung SLSI FM JNI (`Jan Altensen`, `TO21Consortium`).
+- [The Halcyon Project](https://github.com/halcyonproject): Material 3 Compose UI, theming, typography, and Opus recording.
+
+## License
+
+Licensed under Apache 2.0 and the GNU General Public License, following AOSP, LineageOS FMRadio, and RevampedFMRadio.
