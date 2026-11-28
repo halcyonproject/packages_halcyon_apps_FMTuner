@@ -37,7 +37,7 @@
     <string name="toast_sdcard_insufficient_space">Insufficient SD card space!</string>
     <!-- Toast message shown when record or playback record has some internal error
          [CHAR LIMIT=NONE] -->
-    <string name="toast_recorder_internal_error">An internal error occured in recorder!</string>
+    <string name="toast_recorder_internal_error">An internal error occurred in recorder!</string>
     <!-- Dialog "Save" button to save the FM recording [CHAR LIMIT=20] -->
     <string name="btn_save_recording">Save</string>
     <!-- Dialog "Discard" button to discard the FM recording [CHAR LIMIT=20] -->
@@ -62,7 +62,7 @@
     <!-- Talkback message for start recording button [CHAR LIMIT=30] -->
     <string name="talk_start_recording">Start recording</string>
     <!-- Talkback message for favorit card more menu [CHAR LIMIT=30] -->
-    <string name="more">"More"</string>
+    <string name="more">More</string>
     <!-- The tips shown when we start recording [CHAR LIMIT=30] -->
     <string name="recording_tips">Recording…</string>
     <!-- The text "FM" shown in FM main screen [CHAR LIMIT=30] -->
@@ -131,6 +131,9 @@
     <string name="accessibility_pause">Pause</string>
     <string name="accessibility_next">Next</string>
     <string name="accessibility_prev">Previous</string>
+    <string name="accessibility_rewind_5s">Rewind 5 seconds</string>
+    <string name="accessibility_forward_5s">Forward 5 seconds</string>
+    <string name="recording_badge_format">REC %1$s</string>
 
     <!-- Font family for notification artwork text -->
     <string name="fm_notification_artwork_font_family" translatable="false">google-sans-flex</string>
@@ -158,16 +161,16 @@
     <string name="pref_location_title">Storage folder</string>
     <string name="settings_cat_about">About &amp; Project</string>
     <string name="pref_version_title">Version</string>
-    <string name="pref_version_summary">v17.0 (2026) • Revamped Material 3 Experience</string>
+    <string name="pref_version_summary">Version %1$s</string>
     <string name="pref_license_title">License</string>
     <string name="pref_license_summary">Apache 2.0 &amp; GNU General Public License</string>
 
     <!-- Dialogs -->
     <string name="dialog_select_format">Select Audio Format</string>
     <string name="dialog_select_bitrate">Select Audio Bitrate</string>
-    <string name="dialog_about_title">About Halcyon FMTuner</string>
-    <string name="about_app_description">Hardware FM Radio receiver forked from iusmac\'s Revamped FM Radio with improvements to Material 3 Expressive UI, expressive spring physics, and high quality broadcast recording.</string>
-    <string name="about_crafted_by">Crafted for Halcyon Project &amp; AOSP.</string>
+    <string name="dialog_about_title">About FM Tuner</string>
+    <string name="about_app_description">Hardware FM radio receiver based on RevampedFMRadio with dynamic Material 3 theming, Google Sans Flex typography, and AAC or Opus broadcast recording.</string>
+    <string name="about_crafted_by">Built for Halcyon Project &amp; AOSP.</string>
 
     <string name="format_m4a_label">AAC / M4A (Recommended)</string>
     <string name="format_m4a_desc">High fidelity audio container (.m4a)</string>
@@ -193,6 +196,8 @@
     <string name="group_earlier">Earlier</string>
 
     <string name="edit_station_title">Edit Station Name</string>
+    <string name="frequency_label">Frequency: %1$s</string>
+    <string name="station_name_label">Name</string>
     <string name="delete_favorite_title">Delete Favorite</string>
     <string name="delete_favorite_message">Remove %1$s (%2$s) from favorites?</string>
 </resources>

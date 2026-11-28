@@ -999,7 +999,7 @@ private fun TopStatusPillGroup(
                     val durationSec = recordDurationMs / 1000L
                     val timeStr = String.format(Locale.US, "%02d:%02d", durationSec / 60, durationSec % 60)
                     Text(
-                        text = "REC $timeStr",
+                        text = stringResource(R.string.recording_badge_format, timeStr),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onErrorContainer

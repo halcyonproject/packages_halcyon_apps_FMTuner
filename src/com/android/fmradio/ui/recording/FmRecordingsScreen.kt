@@ -643,7 +643,7 @@ fun FmRecordingsScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.FastRewind,
-                                        contentDescription = "Rewind 5s",
+                                        contentDescription = stringResource(R.string.accessibility_rewind_5s),
                                         modifier = Modifier.size(20.dp),
                                         tint = MaterialTheme.colorScheme.onSurface
                                     )
@@ -657,7 +657,11 @@ fun FmRecordingsScreen(
                                 ) {
                                     Icon(
                                         imageVector = if (isAudioPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                        contentDescription = if (isAudioPlaying) "Pause" else "Play",
+                                        contentDescription = if (isAudioPlaying) {
+                                            stringResource(R.string.accessibility_pause)
+                                        } else {
+                                            stringResource(R.string.accessibility_play)
+                                        },
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
@@ -673,7 +677,7 @@ fun FmRecordingsScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.FastForward,
-                                        contentDescription = "Forward 5s",
+                                        contentDescription = stringResource(R.string.accessibility_forward_5s),
                                         modifier = Modifier.size(20.dp),
                                         tint = MaterialTheme.colorScheme.onSurface
                                     )

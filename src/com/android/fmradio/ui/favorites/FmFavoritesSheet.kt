@@ -196,7 +196,7 @@ fun FmFavoritesSheet(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
                         Text(
-                            text = "No favorite stations yet",
+                            text = stringResource(R.string.no_favorite_station),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -338,7 +338,7 @@ fun FmFavoritesSheet(
                                         onDismissRequest = { menuExpanded = false }
                                     ) {
                                         DropdownMenuItem(
-                                            text = { Text("Edit Name") },
+                                            text = { Text(stringResource(R.string.rename)) },
                                             onClick = {
                                                 menuExpanded = false
                                                 stationToEdit = item
@@ -351,7 +351,7 @@ fun FmFavoritesSheet(
                                             }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Delete") },
+                                            text = { Text(stringResource(R.string.delete)) },
                                             onClick = {
                                                 menuExpanded = false
                                                 stationToDelete = item
@@ -396,14 +396,14 @@ fun FmFavoritesSheet(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Frequency: ${FmUtils.formatStation(station.frequency)}",
+                        text = stringResource(R.string.frequency_label, FmUtils.formatStation(station.frequency)),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
                         value = editedName,
                         onValueChange = { editedName = it },
-                        label = { Text("Name") },
+                        label = { Text(stringResource(R.string.station_name_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )

@@ -96,6 +96,13 @@ fun FmSettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val appVersionName = remember(context) {
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "3.2.0"
+        } catch (e: Exception) {
+            "3.2.0"
+        }
+    }
 
     var autoplayEnabled by remember { mutableStateOf(FmPreferences.isAutoplayEnabled(context)) }
     var reduceMotion by remember { mutableStateOf(FmPreferences.isReduceMotionEnabled(context)) }
@@ -259,7 +266,9 @@ fun FmSettingsScreen(
                             Preference(
                                 object : PreferenceModel {
                                     override val title = stringResource(R.string.dialog_about_title)
-                                    override val summary = { context.getString(R.string.pref_version_summary) }
+                                    override val summary = {
+                                        context.getString(R.string.pref_version_summary, appVersionName)
+                                    }
                                     override val onClick = { showAboutDialog = true }
                                     override val icon = @Composable {
                                         SettingsIcon(imageVector = Icons.Outlined.Info)
@@ -275,7 +284,7 @@ fun FmSettingsScreen(
                                         try {
                                             val browserIntent = Intent(
                                                 Intent.ACTION_VIEW,
-                                                Uri.parse("https://github.com/halcyonproject/packages_halcyon_apps_FMRadio/blob/17.0/LICENSE")
+                                                Uri.parse("https://github.com/halcyonproject/packages_halcyon_apps_FMTuner/blob/17.0/LICENSE")
                                             )
                                             context.startActivity(browserIntent)
                                         } catch (e: Exception) {
