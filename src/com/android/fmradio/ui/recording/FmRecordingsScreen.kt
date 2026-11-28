@@ -282,6 +282,7 @@ fun FmRecordingsScreen(
             item.uri
         }
         val mimeType = when {
+            item.filePath.endsWith(".ogg", ignoreCase = true) -> "audio/ogg"
             item.filePath.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"
             item.filePath.endsWith(".m4a", ignoreCase = true) -> "audio/mp4"
             item.filePath.endsWith(".3gpp", ignoreCase = true) || item.filePath.endsWith(".3gp", ignoreCase = true) -> "audio/3gpp"

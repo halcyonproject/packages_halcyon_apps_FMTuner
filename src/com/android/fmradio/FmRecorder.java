@@ -53,9 +53,9 @@ public class FmRecorder implements MediaRecorder.OnErrorListener, MediaRecorder.
     // file prefix
     public static final String RECORDING_FILE_PREFIX = "FM";
     // file extension
-    public static final String RECORDING_FILE_EXTENSION = ".mp3";
+    public static final String RECORDING_FILE_EXTENSION = ".m4a";
     // recording file type
-    private static final String RECORDING_FILE_TYPE = "audio/mpeg";
+    private static final String RECORDING_FILE_TYPE = "audio/mp4";
     // error type no sdcard
     public static final int ERROR_SDCARD_NOT_PRESENT = 0;
     // error type sdcard not have enough space
@@ -132,12 +132,16 @@ public class FmRecorder implements MediaRecorder.OnErrorListener, MediaRecorder.
         String formatPref = FmPreferences.getRecordingFormat(context);
         int bitratePref = FmPreferences.getRecordingBitrate(context);
         int outputFormat = MediaRecorder.OutputFormat.MPEG_4;
+        int audioEncoder = MediaRecorder.AudioEncoder.AAC;
+        int sampleRate = 44100;
         mCurrentExtension = ".m4a";
         mCurrentMimeType = "audio/mp4";
-        if (FmPreferences.FORMAT_MP3.equalsIgnoreCase(formatPref)) {
-            outputFormat = MediaRecorder.OutputFormat.MPEG_4;
-            mCurrentExtension = ".mp3";
-            mCurrentMimeType = "audio/mpeg";
+        if (FmPreferences.FORMAT_OGG.equalsIgnoreCase(formatPref)) {
+            outputFormat = MediaRecorder.OutputFormat.OGG;
+            audioEncoder = MediaRecorder.AudioEncoder.OPUS;
+            sampleRate = 48000;
+            mCurrentExtension = ".ogg";
+            mCurrentMimeType = "audio/ogg";
         }
 
         // create recording temporary file
@@ -176,8 +180,8 @@ public class FmRecorder implements MediaRecorder.OnErrorListener, MediaRecorder.
             mRecorder.setMaxDuration(0);
             mRecorder.setAudioSource(MediaRecorder.AudioSource.RADIO_TUNER);
             mRecorder.setOutputFormat(outputFormat);
-            mRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            mRecorder.setAudioSamplingRate(44100);
+            mRecorder.setAudioEncoder(audioEncoder);
+            mRecorder.setAudioSamplingRate(sampleRate);
             mRecorder.setAudioEncodingBitRate(bitratePref);
             mRecorder.setAudioChannels(2);
             mRecorder.setOutputFile(mRecordFile.getAbsolutePath());
@@ -242,7 +246,7 @@ public class FmRecorder implements MediaRecorder.OnErrorListener, MediaRecorder.
     public String getRecordFileName() {
         if (mRecordFile != null) {
             String fileName = mRecordFile.getName();
-            int index = fileName.indexOf(RECORDING_FILE_EXTENSION);
+            int index = fileName.lastIndexOf('.');
             if (index > 0) {
                 fileName = fileName.substring(0, index);
             }

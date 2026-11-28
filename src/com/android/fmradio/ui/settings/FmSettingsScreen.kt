@@ -213,8 +213,8 @@ fun FmSettingsScreen(
                                 object : PreferenceModel {
                                     override val title = stringResource(R.string.pref_format_title)
                                     override val summary = {
-                                        if (recordingFormat == FmPreferences.FORMAT_MP3) {
-                                            context.getString(R.string.format_mp3_label)
+                                        if (recordingFormat == FmPreferences.FORMAT_OGG) {
+                                            context.getString(R.string.format_ogg_label)
                                         } else {
                                             context.getString(R.string.format_m4a_label)
                                         }
@@ -318,7 +318,7 @@ fun FmSettingsScreen(
                 Column {
                     val formats = listOf(
                         Triple(FmPreferences.FORMAT_M4A, stringResource(R.string.format_m4a_label), stringResource(R.string.format_m4a_desc)),
-                        Triple(FmPreferences.FORMAT_MP3, stringResource(R.string.format_mp3_label), stringResource(R.string.format_mp3_desc))
+                        Triple(FmPreferences.FORMAT_OGG, stringResource(R.string.format_ogg_label), stringResource(R.string.format_ogg_desc))
                     )
 
                     formats.forEach { (fmt, label, desc) ->

@@ -170,9 +170,9 @@
     <string name="about_crafted_by">Crafted for Halcyon Project &amp; AOSP.</string>
 
     <string name="format_m4a_label">AAC / M4A (Recommended)</string>
-    <string name="format_m4a_desc">High fidelity, modern audio container (.m4a)</string>
-    <string name="format_mp3_label">MP3 (.mp3)</string>
-    <string name="format_mp3_desc">Universal playback compatibility (.mp3)</string>
+    <string name="format_m4a_desc">High fidelity audio container (.m4a)</string>
+    <string name="format_ogg_label">Opus / OGG</string>
+    <string name="format_ogg_desc">Modern open audio codec (.ogg)</string>
 
     <string name="bitrate_128k_label">128 kbps</string>
     <string name="bitrate_128k_desc">Standard speech quality</string>

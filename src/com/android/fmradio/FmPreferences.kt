@@ -28,7 +28,7 @@ object FmPreferences {
     const val KEY_FAVORITES_ORDER = "pref_favorites_order"
 
     const val FORMAT_M4A = "m4a"
-    const val FORMAT_MP3 = "mp3"
+    const val FORMAT_OGG = "ogg"
 
     const val BITRATE_128K = 128000
     const val BITRATE_192K = 192000
@@ -68,7 +68,7 @@ object FmPreferences {
     @JvmStatic
     fun getRecordingFormat(context: Context): String {
         val format = getPrefs(context).getString(KEY_RECORDING_FORMAT, FORMAT_M4A) ?: FORMAT_M4A
-        return if (format == "3gpp") FORMAT_MP3 else format
+        return if (format == "3gpp" || format == "mp3") FORMAT_OGG else format
     }
 
     @JvmStatic
